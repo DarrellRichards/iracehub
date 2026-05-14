@@ -174,7 +174,7 @@ export function generateTopHeavySplit(
   const bottomCount = numPositions - topCount - middleCount;
 
   // Allocate purse proportionally
-  let topAmount = Math.floor(purse * 0.6);
+  const topAmount = Math.floor(purse * 0.6);
   let middleAmount = Math.floor(purse * 0.3);
   let bottomAmount = purse - topAmount - middleAmount;
 
