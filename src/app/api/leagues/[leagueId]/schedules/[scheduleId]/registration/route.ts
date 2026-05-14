@@ -164,7 +164,7 @@ function getRegistrationLockReason(args: {
   if (now >= eventStartTime) {
     return {
       error: "event_passed",
-      message: "Registration is closed because this event has started.",
+      message: "Registration is closed because this event has already started.",
     };
   }
 

@@ -89,6 +89,8 @@ export function distributeMoney(
   // Handle rounding/correction by applying the delta deterministically
   let delta = amount - totalDistributed;
   let index = 0;
+  // Guard against pathological inputs while still allowing practical correction
+  // ranges for normal split sizes and amounts.
   const maxIterations = Math.min(
     10_000,
     Math.max(1, Math.abs(delta) + Math.max(1, splits.length)),
@@ -109,12 +111,12 @@ export function distributeMoney(
       adjusted = true;
     }
 
-    const completedPassWithoutDecrement =
+    const completedPassWithoutAdjustment =
       !adjusted && delta < 0 && index >= splits.length - 1;
 
     // If we finish a full pass without decrementing while delta is negative,
     // no recipient can be reduced further, so stop to avoid an infinite loop.
-    if (completedPassWithoutDecrement) {
+    if (completedPassWithoutAdjustment) {
       break;
     }
 
