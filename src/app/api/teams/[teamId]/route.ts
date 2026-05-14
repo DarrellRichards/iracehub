@@ -24,10 +24,6 @@ export async function GET(
     } catch {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
-
-    if (!Number.isInteger(iracingCustId) || iracingCustId <= 0) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
     const user = await prisma.user.findUnique({
       where: { iracingCustId },
       select: { id: true },

@@ -89,8 +89,8 @@ export function distributeMoney(
   // Handle rounding/correction by applying the delta deterministically
   let delta = amount - totalDistributed;
   let index = 0;
-  // Guard against pathological inputs while still allowing practical correction
-  // ranges for normal split sizes and amounts.
+  // Cap at 10k iterations to prevent runaway loops with malformed inputs while
+  // still comfortably handling realistic per-race payout adjustments.
   const maxIterations = Math.min(
     10_000,
     Math.max(1, Math.abs(delta) + Math.max(1, splits.length)),

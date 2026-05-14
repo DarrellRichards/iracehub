@@ -155,4 +155,23 @@ describe("recalculateLeagueVirtualMoney", () => {
       }),
     );
   });
+
+  it("propagates transaction failures when one update operation fails", async () => {
+    const prisma = createPrismaMock();
+    prisma.league.findUnique.mockResolvedValue({ id: "league-1", virtualModeEnabled: true });
+    prisma.member.findMany.mockResolvedValue([{ id: "member-1", teamMembership: null }]);
+    prisma.team.findMany.mockResolvedValue([]);
+    prisma.raceSessionResult.findMany.mockResolvedValue([
+      {
+        memberId: "member-1",
+        finishPosition: 1,
+        raceSession: { schedule: { virtualPayoutSplit: [100] } },
+      },
+    ]);
+    prisma.member.update.mockRejectedValueOnce(new Error("update_failed"));
+
+    await expect(
+      recalculateLeagueVirtualMoney(prisma as never, "league-1"),
+    ).rejects.toThrow("update_failed");
+  });
 });
