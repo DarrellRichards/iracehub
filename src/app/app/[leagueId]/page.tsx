@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { formatMoney } from "@/lib/money";
 
 interface StandingEntry {
   custId: number;
@@ -80,6 +81,7 @@ interface LastRaceResult {
     lapsCompleted: number | null;
     incidents: number | null;
     finalPoints: number;
+    virtualEarnings: number | null;
     provisional: boolean;
   }>;
 }
@@ -115,6 +117,8 @@ interface LandingPayload {
   series: SeriesCard[];
 }
 
+const REGISTRATION_LOCK_WINDOW_MS = 20 * 60 * 1000;
+
 function fmtDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-US", {
     month: "short",
@@ -145,6 +149,60 @@ function relativeEventLabel(dateStr: string) {
   if (diffDays === 1) return "Tomorrow";
   if (diffDays < 7) return `In ${diffDays} days`;
   return "Upcoming";
+}
+
+function getRegistrationState(args: {
+  eventDate: string;
+  registrationEnabled: boolean;
+  hasResults: boolean;
+}) {
+  const eventTime = new Date(args.eventDate).getTime();
+  const now = Date.now();
+  const lockTime = eventTime - REGISTRATION_LOCK_WINDOW_MS;
+
+  if (!args.registrationEnabled) {
+    return {
+      isClosed: true,
+      summaryLabel: "Disabled",
+      actionLabel: "Registration Disabled",
+      helperText: "Registration is disabled for this event.",
+    };
+  }
+
+  if (args.hasResults) {
+    return {
+      isClosed: true,
+      summaryLabel: "Results posted",
+      actionLabel: "Results Posted",
+      helperText:
+        "Registration is closed because results have already been posted.",
+    };
+  }
+
+  if (now >= eventTime) {
+    return {
+      isClosed: true,
+      summaryLabel: "Event passed",
+      actionLabel: "Event Passed",
+      helperText: "This event has already started or finished.",
+    };
+  }
+
+  if (now >= lockTime) {
+    return {
+      isClosed: true,
+      summaryLabel: "Closed within 20 min",
+      actionLabel: "Registration Closed",
+      helperText: "Registration closes 20 minutes before the event start time.",
+    };
+  }
+
+  return {
+    isClosed: false,
+    summaryLabel: null,
+    actionLabel: null,
+    helperText: null,
+  };
 }
 
 async function readJsonSafely<T>(response: Response): Promise<T | null> {
@@ -294,6 +352,14 @@ export default function LeaguePage() {
         )[0] ?? null
     );
   }, [data]);
+
+  const featuredNextRaceRegistrationState = featuredNextRace
+    ? getRegistrationState({
+        eventDate: featuredNextRace.event.eventDate,
+        registrationEnabled: featuredNextRace.event.registrationEnabled,
+        hasResults: Boolean(featuredNextRace.event.importedSession?.hasResults),
+      })
+    : null;
 
   if (authLoading || loading) {
     return (
@@ -528,9 +594,10 @@ export default function LeaguePage() {
                         <p className="text-zinc-400">
                           {featuredNextRace.event.isRegisteredByMe
                             ? "You are on the list"
-                            : relativeEventLabel(
+                            : (featuredNextRaceRegistrationState?.summaryLabel ??
+                              relativeEventLabel(
                                 featuredNextRace.event.eventDate,
-                              )}
+                              ))}
                         </p>
                       </div>
                     </div>
@@ -565,19 +632,26 @@ export default function LeaguePage() {
                           }
                           disabled={
                             registeringScheduleId ===
-                              featuredNextRace.event.id || !data.canSelfRegister
+                              featuredNextRace.event.id ||
+                            !data.canSelfRegister ||
+                            featuredNextRaceRegistrationState?.isClosed
                           }
                           className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                            featuredNextRace.event.isRegisteredByMe
+                            featuredNextRace.event.isRegisteredByMe &&
+                            !featuredNextRaceRegistrationState?.isClosed
                               ? "border-zinc-700 text-zinc-200 hover:border-red-500/60 hover:text-red-300"
-                              : "border-green-700/60 text-green-300 hover:border-green-500"
+                              : featuredNextRaceRegistrationState?.isClosed
+                                ? "border-zinc-800 text-zinc-500"
+                                : "border-green-700/60 text-green-300 hover:border-green-500"
                           }`}
                         >
                           {registeringScheduleId === featuredNextRace.event.id
                             ? "Saving..."
-                            : featuredNextRace.event.isRegisteredByMe
-                              ? "Unregister"
-                              : "Register for Race"}
+                            : featuredNextRaceRegistrationState?.isClosed
+                              ? featuredNextRaceRegistrationState.actionLabel
+                              : featuredNextRace.event.isRegisteredByMe
+                                ? "Unregister"
+                                : "Register for Race"}
                         </button>
                       )}
                     </div>
@@ -597,9 +671,15 @@ export default function LeaguePage() {
                   const nextEvent = series.nextEvent;
                   const lastRace = series.lastRaceResult;
                   const isRegistering = registeringScheduleId === nextEvent?.id;
-                  const nextEventPassed = nextEvent
-                    ? new Date(nextEvent.eventDate) < new Date()
-                    : false;
+                  const nextEventRegistrationState = nextEvent
+                    ? getRegistrationState({
+                        eventDate: nextEvent.eventDate,
+                        registrationEnabled: nextEvent.registrationEnabled,
+                        hasResults: Boolean(
+                          nextEvent.importedSession?.hasResults,
+                        ),
+                      })
+                    : null;
 
                   return (
                     <section
@@ -709,7 +789,8 @@ export default function LeaguePage() {
                                     <p className="text-zinc-400">
                                       {nextEvent.isRegisteredByMe
                                         ? "You are registered"
-                                        : "Open for driver sign-up"}
+                                        : (nextEventRegistrationState?.summaryLabel ??
+                                          "Open for driver sign-up")}
                                     </p>
                                   </div>
                                 </div>
@@ -719,9 +800,10 @@ export default function LeaguePage() {
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                       <div>
                                         <p className="text-sm font-medium text-zinc-100">
-                                          {nextEvent.isRegisteredByMe
-                                            ? "You are on the grid for this race."
-                                            : "Register now to confirm race attendance."}
+                                          {nextEventRegistrationState?.helperText ??
+                                            (nextEvent.isRegisteredByMe
+                                              ? "You are on the grid for this race."
+                                              : "Register now to confirm race attendance.")}
                                         </p>
                                         <p className="mt-1 text-xs text-zinc-500">
                                           {data.canSelfRegister
@@ -738,17 +820,20 @@ export default function LeaguePage() {
                                         }
                                         disabled={
                                           isRegistering ||
-                                          nextEventPassed ||
-                                          !data.canSelfRegister
+                                          !data.canSelfRegister ||
+                                          nextEventRegistrationState?.isClosed
                                         }
                                         className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                                          nextEvent.isRegisteredByMe
+                                          nextEvent.isRegisteredByMe &&
+                                          !nextEventRegistrationState?.isClosed
                                             ? "border-zinc-700 text-zinc-200 hover:border-red-500/60 hover:text-red-300"
-                                            : "border-green-700/60 text-green-300 hover:border-green-500"
+                                            : nextEventRegistrationState?.isClosed
+                                              ? "border-zinc-800 text-zinc-500"
+                                              : "border-green-700/60 text-green-300 hover:border-green-500"
                                         }`}
                                       >
-                                        {nextEventPassed
-                                          ? "Event Passed"
+                                        {nextEventRegistrationState?.isClosed
+                                          ? nextEventRegistrationState.actionLabel
                                           : isRegistering
                                             ? "Saving..."
                                             : nextEvent.isRegisteredByMe
@@ -891,6 +976,9 @@ export default function LeaguePage() {
                                         <th className="px-4 py-3 font-medium">
                                           Pts
                                         </th>
+                                        <th className="px-4 py-3 font-medium">
+                                          Earn
+                                        </th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
@@ -926,6 +1014,13 @@ export default function LeaguePage() {
                                           </td>
                                           <td className="px-4 py-3 font-medium text-zinc-100">
                                             {fmtPoints(result.finalPoints)}
+                                          </td>
+                                          <td className="px-4 py-3 font-medium text-zinc-200">
+                                            {result.virtualEarnings == null
+                                              ? "—"
+                                              : formatMoney(
+                                                  result.virtualEarnings,
+                                                )}
                                           </td>
                                         </tr>
                                       ))}

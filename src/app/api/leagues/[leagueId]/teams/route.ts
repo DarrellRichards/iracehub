@@ -129,6 +129,8 @@ export async function GET(
           name: true,
           leagueId: true,
           captainMemberId: true,
+          virtualBank: true,
+          totalEarned: true,
           members: {
             select: {
               id: true,
@@ -218,6 +220,8 @@ export async function GET(
           id: true,
           name: true,
           captainMemberId: true,
+          virtualBank: true,
+          totalEarned: true,
           members: {
             select: {
               id: true,
@@ -300,6 +304,8 @@ export async function GET(
             id: myTeamRecord.id,
             name: myTeamRecord.name,
             captainMemberId: myTeamRecord.captainMemberId,
+            virtualBank: myTeamRecord.virtualBank,
+            totalEarned: myTeamRecord.totalEarned,
             myRole: viewerMembership.role,
             isCaptain: viewerMembership.role === TeamRole.CAPTAIN,
             members: sortTeamMembers(myTeamRecord.members),

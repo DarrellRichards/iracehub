@@ -9,20 +9,6 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "iRaceHub Dev Server",
-			"type": "shell",
-			"command": "npm run dev",
-			"isBackground": true,
-			"problemMatcher": []
-		},
-		{
-			"label": "iRaceHub Dev Server",
-			"type": "shell",
-			"command": "npm run dev",
-			"isBackground": true,
-			"problemMatcher": []
-		},
-		{
 			"label": "Install Prisma CLI",
 			"type": "shell",
 			"command": "npm_config_progress=false npm install -D prisma --no-audit --no-fund",
@@ -37,18 +23,17 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "Prisma Generate",
+			"label": "CI Validate",
 			"type": "shell",
-			"command": "npm run prisma:generate",
-			"isBackground": false,
-			"problemMatcher": []
+			"command": "npm run ci",
+			"args": [],
+			"isBackground": false
 		},
 		{
-			"label": "Prisma Generate",
+			"label": "Unit Tests",
 			"type": "shell",
-			"command": "npm run prisma:generate",
-			"isBackground": false,
-			"problemMatcher": []
+			"command": "npm run test",
+			"isBackground": false
 		}
 	]
 }

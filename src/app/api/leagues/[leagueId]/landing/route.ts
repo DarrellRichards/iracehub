@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 
+const PAYOUT_SLOTS = 60;
+
 interface StandingEntry {
   custId: number;
   displayName: string;
@@ -15,6 +17,66 @@ interface StandingEntry {
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function normalizeTrackName(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const lowered = normalized.toLowerCase();
+  if (lowered === "undefined" || lowered === "null") {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizePayout(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return Array.from({ length: PAYOUT_SLOTS }, () => 0);
+  }
+
+  const normalized = value
+    .slice(0, PAYOUT_SLOTS)
+    .map((amount) =>
+      Number.isFinite(amount) && Number(amount) >= 0
+        ? Math.floor(Number(amount))
+        : 0,
+    );
+
+  while (normalized.length < PAYOUT_SLOTS) {
+    normalized.push(0);
+  }
+
+  return normalized;
+}
+
+function resolveRaceEarnings(
+  finishPosition: number | null,
+  args: {
+    virtualModeEnabled: boolean;
+    schedulePayoutSplit: unknown;
+  },
+): number | null {
+  if (!args.virtualModeEnabled) {
+    return null;
+  }
+
+  const payout = normalizePayout(args.schedulePayoutSplit);
+  const basePayout =
+    finishPosition != null &&
+    finishPosition >= 1 &&
+    finishPosition <= PAYOUT_SLOTS
+      ? (payout[finishPosition - 1] ?? 0)
+      : 0;
+
+  return basePayout;
 }
 
 function buildStandings(
@@ -116,6 +178,8 @@ export async function GET(
             rosterCount: true,
             about: true,
             message: true,
+            virtualModeEnabled: true,
+            virtualEntryFee: true,
           },
         })
       : await prisma.league.findUnique({
@@ -129,6 +193,8 @@ export async function GET(
             rosterCount: true,
             about: true,
             message: true,
+            virtualModeEnabled: true,
+            virtualEntryFee: true,
           },
         });
 
@@ -207,13 +273,27 @@ export async function GET(
           };
         }
 
-        const [nextEventRaw, lastRaceResult, standingsRows] = await Promise.all(
-          [
+        const [nextEventRaw, lastRaceResultRaw, standingsRows] =
+          await Promise.all([
             prisma.schedule.findFirst({
               where: {
                 seriesId: seriesItem.id,
                 seasonId: activeSeason.id,
                 eventDate: { gte: now },
+                OR: [
+                  {
+                    importedSession: {
+                      is: null,
+                    },
+                  },
+                  {
+                    importedSession: {
+                      is: {
+                        hasResults: false,
+                      },
+                    },
+                  },
+                ],
               },
               orderBy: [{ eventDate: "asc" }, { raceOrder: "asc" }],
               select: {
@@ -281,6 +361,8 @@ export async function GET(
                     raceName: true,
                     eventDate: true,
                     raceOrder: true,
+                    trackName: true,
+                    virtualPayoutSplit: true,
                   },
                 },
                 results: {
@@ -319,8 +401,24 @@ export async function GET(
                 finishPosition: true,
               },
             }),
-          ],
-        );
+          ]);
+
+        const lastRaceResult = lastRaceResultRaw
+          ? {
+              ...lastRaceResultRaw,
+              trackName:
+                normalizeTrackName(lastRaceResultRaw.trackName) ??
+                normalizeTrackName(lastRaceResultRaw.schedule?.trackName),
+              results: lastRaceResultRaw.results.map((result) => ({
+                ...result,
+                virtualEarnings: resolveRaceEarnings(result.finishPosition, {
+                  virtualModeEnabled: league.virtualModeEnabled,
+                  schedulePayoutSplit:
+                    lastRaceResultRaw.schedule?.virtualPayoutSplit ?? [],
+                }),
+              })),
+            }
+          : null;
 
         const nextEvent = nextEventRaw
           ? {

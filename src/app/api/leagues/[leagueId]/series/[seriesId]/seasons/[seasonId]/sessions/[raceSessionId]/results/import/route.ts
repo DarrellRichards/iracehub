@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 import { fetchIracingLinkedJson } from "@/lib/iracing/api";
+import { recalculateLeagueVirtualMoney } from "@/lib/virtualMoneyDistribution";
 
 function toInputJsonValue(value: Prisma.JsonValue): Prisma.InputJsonValue {
   if (value === null) return null as unknown as Prisma.InputJsonValue;
@@ -426,6 +427,8 @@ export async function POST(
     where: { id: raceSessionId },
     data: { hasResults: true },
   });
+
+  await recalculateLeagueVirtualMoney(prisma, leagueId);
 
   return NextResponse.json({ imported: upserted.length, results: upserted });
 }

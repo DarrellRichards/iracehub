@@ -2,8 +2,52 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 
+const PAYOUT_SLOTS = 60;
+
 function round2(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function normalizePayout(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return Array.from({ length: PAYOUT_SLOTS }, () => 0);
+  }
+
+  const normalized = value
+    .slice(0, PAYOUT_SLOTS)
+    .map((amount) =>
+      Number.isFinite(amount) && Number(amount) >= 0
+        ? Math.floor(Number(amount))
+        : 0,
+    );
+
+  while (normalized.length < PAYOUT_SLOTS) {
+    normalized.push(0);
+  }
+
+  return normalized;
+}
+
+function resolveRaceEarnings(
+  finishPosition: number | null,
+  args: {
+    virtualModeEnabled: boolean;
+    schedulePayoutSplit: unknown;
+  },
+): number | null {
+  if (!args.virtualModeEnabled) {
+    return null;
+  }
+
+  const payout = normalizePayout(args.schedulePayoutSplit);
+  const basePayout =
+    finishPosition != null &&
+    finishPosition >= 1 &&
+    finishPosition <= PAYOUT_SLOTS
+      ? (payout[finishPosition - 1] ?? 0)
+      : 0;
+
+  return basePayout;
 }
 
 export async function GET(
@@ -50,6 +94,18 @@ export async function GET(
   if (accessibleLeagueIds.length === 0) {
     return NextResponse.json({ error: "no_league_access" }, { status: 403 });
   }
+
+  const virtualSettingsRows = await prisma.league.findMany({
+    where: { id: { in: accessibleLeagueIds } },
+    select: {
+      id: true,
+      virtualModeEnabled: true,
+    },
+  });
+
+  const virtualSettingsByLeagueId = new Map(
+    virtualSettingsRows.map((row) => [row.id, row]),
+  );
 
   const results = await prisma.raceSessionResult.findMany({
     where: {
@@ -99,6 +155,7 @@ export async function GET(
               raceName: true,
               eventDate: true,
               raceOrder: true,
+              virtualPayoutSplit: true,
             },
           },
         },
@@ -203,6 +260,14 @@ export async function GET(
       totalPoints: round2(totalPoints),
     },
     leagues,
-    results,
+    results: results.map((row) => ({
+      ...row,
+      virtualEarnings: resolveRaceEarnings(row.finishPosition, {
+        ...(virtualSettingsByLeagueId.get(row.raceSession.league.id) ?? {
+          virtualModeEnabled: false,
+        }),
+        schedulePayoutSplit: row.raceSession.schedule?.virtualPayoutSplit ?? [],
+      }),
+    })),
   });
 }

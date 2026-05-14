@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "race_session_results" ADD COLUMN "bonus_points" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN "penalty_points" DOUBLE PRECISION NOT NULL DEFAULT 0;

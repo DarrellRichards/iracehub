@@ -4,6 +4,19 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { formatMoney } from "@/lib/money";
+
+interface TeamDriverPaymentsResponse {
+  teamId: string;
+  payments: Array<{
+    id: string;
+    memberId: string;
+    custId: number;
+    displayName: string;
+    carNumber: string | null;
+    paymentPercent: number;
+  }>;
+}
 
 interface TeamDirectoryResponse {
   league: {
@@ -19,6 +32,8 @@ interface TeamDirectoryResponse {
   myTeam: {
     id: string;
     name: string;
+    virtualBank: number;
+    totalEarned: number;
     myRole: "CAPTAIN" | "DRIVER";
     isCaptain: boolean;
     members: Array<{
@@ -65,6 +80,8 @@ interface TeamDirectoryResponse {
     id: string;
     name: string;
     captainMemberId: string;
+    virtualBank: number;
+    totalEarned: number;
     members: Array<{
       id: string;
       role: "CAPTAIN" | "DRIVER";
@@ -107,6 +124,16 @@ export default function TeamsPage() {
   const [memberSearch, setMemberSearch] = useState("");
   const [invitingCustId, setInvitingCustId] = useState<number | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [driverPaymentByMemberId, setDriverPaymentByMemberId] = useState<
+    Record<string, number>
+  >({});
+  const [driverPaymentsLoading, setDriverPaymentsLoading] = useState(false);
+  const [savingDriverPaymentFor, setSavingDriverPaymentFor] = useState<
+    string | null
+  >(null);
+  const [driverPaymentsError, setDriverPaymentsError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!authLoading && !session?.authenticated) {
@@ -149,6 +176,57 @@ export default function TeamsPage() {
       void loadTeams();
     });
   }, [loadTeams]);
+
+  useEffect(() => {
+    if (!data?.myTeam?.isCaptain) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadDriverPayments = async () => {
+      setDriverPaymentsLoading(true);
+      setDriverPaymentsError(null);
+
+      try {
+        const res = await fetch(
+          `/api/teams/${data.myTeam!.id}/driver-payments`,
+          { cache: "no-store" },
+        );
+        const payload = await readJsonSafely<TeamDriverPaymentsResponse>(res);
+
+        if (!res.ok || !payload) {
+          throw new Error(`driver_payments_fetch_failed_${res.status}`);
+        }
+
+        if (isCancelled) return;
+
+        const next: Record<string, number> = {};
+        for (const entry of data.myTeam!.members) {
+          next[entry.member.id] = 0;
+        }
+        for (const payment of payload.payments) {
+          next[payment.memberId] = payment.paymentPercent;
+        }
+        setDriverPaymentByMemberId(next);
+      } catch (err) {
+        if (isCancelled) return;
+        setDriverPaymentsError(
+          err instanceof Error ? err.message : "failed_to_load_driver_payments",
+        );
+      } finally {
+        if (!isCancelled) {
+          setDriverPaymentsLoading(false);
+        }
+      }
+    };
+
+    void loadDriverPayments();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [data]);
 
   async function handleCreateTeam() {
     const trimmed = teamName.trim();
@@ -223,6 +301,56 @@ export default function TeamsPage() {
     }
   }
 
+  async function handleSaveDriverPayment(memberId: string) {
+    if (!data?.myTeam?.isCaptain) return;
+
+    const paymentPercent = Math.max(
+      0,
+      Math.min(100, Math.floor(driverPaymentByMemberId[memberId] ?? 0)),
+    );
+
+    const otherTotal = Object.entries(driverPaymentByMemberId).reduce(
+      (sum, [id, percent]) => (id === memberId ? sum : sum + (percent || 0)),
+      0,
+    );
+
+    if (otherTotal + paymentPercent > 100) {
+      setDriverPaymentsError(
+        "Total configured payout split cannot exceed 100%.",
+      );
+      return;
+    }
+
+    setSavingDriverPaymentFor(memberId);
+    setDriverPaymentsError(null);
+
+    try {
+      const res = await fetch(`/api/teams/${data.myTeam.id}/driver-payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId, paymentPercent }),
+      });
+
+      if (!res.ok) {
+        const payload = await readJsonSafely<{ error?: string }>(res);
+        throw new Error(
+          payload?.error ?? `driver_payment_save_failed_${res.status}`,
+        );
+      }
+
+      setDriverPaymentByMemberId((prev) => ({
+        ...prev,
+        [memberId]: paymentPercent,
+      }));
+    } catch (err) {
+      setDriverPaymentsError(
+        err instanceof Error ? err.message : "driver_payment_save_failed",
+      );
+    } finally {
+      setSavingDriverPaymentFor(null);
+    }
+  }
+
   const filteredTeams = useMemo(() => {
     if (!data) return [];
 
@@ -268,6 +396,15 @@ export default function TeamsPage() {
       return haystack.includes(search);
     });
   }, [data, memberSearch]);
+
+  const totalConfiguredSplitPercent = useMemo(
+    () =>
+      Object.values(driverPaymentByMemberId).reduce(
+        (sum, percent) => sum + (Number.isFinite(percent) ? percent : 0),
+        0,
+      ),
+    [driverPaymentByMemberId],
+  );
 
   if (authLoading || loading) {
     return (
@@ -338,6 +475,27 @@ export default function TeamsPage() {
                   ? `Role: ${data.myTeam.isCaptain ? "Captain" : "Driver"}.`
                   : "Create your team here, then invite league members to join."}
               </p>
+
+              {data.myTeam && (
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">
+                      Team Earned
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-zinc-100">
+                      {formatMoney(data.myTeam.totalEarned)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">
+                      Team Bank
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-zinc-100">
+                      {formatMoney(data.myTeam.virtualBank)}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {createError && (
                 <div className="mt-4 rounded-xl border border-red-900/50 bg-red-950/20 px-3 py-2 text-xs text-red-400">
@@ -474,6 +632,96 @@ export default function TeamsPage() {
               </section>
             )}
 
+            {data.myTeam?.isCaptain && (
+              <section className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Driver Payout Splits
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-white">
+                  Configure Team Driver Percentages
+                </h2>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Set each driver payout percentage for race earnings. Team
+                  keeps any unallocated remainder.
+                </p>
+
+                <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-300">
+                  Total configured: {totalConfiguredSplitPercent}%
+                </div>
+
+                {driverPaymentsError && (
+                  <div className="mt-3 rounded-xl border border-red-900/50 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+                    {driverPaymentsError}
+                  </div>
+                )}
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-zinc-900 text-zinc-400">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Driver</th>
+                        <th className="px-4 py-3 font-medium">Role</th>
+                        <th className="px-4 py-3 font-medium">Payout %</th>
+                        <th className="px-4 py-3 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800 bg-zinc-950/40">
+                      {data.myTeam.members.map((entry) => (
+                        <tr key={entry.id} className="hover:bg-zinc-900/60">
+                          <td className="px-4 py-3 text-zinc-100">
+                            {entry.member.displayName}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-400">
+                            {entry.role === "CAPTAIN" ? "Captain" : "Driver"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              disabled={driverPaymentsLoading}
+                              value={
+                                driverPaymentByMemberId[entry.member.id] ?? 0
+                              }
+                              onChange={(event) => {
+                                const raw = Number.parseInt(
+                                  event.target.value,
+                                  10,
+                                );
+                                setDriverPaymentByMemberId((prev) => ({
+                                  ...prev,
+                                  [entry.member.id]: Number.isFinite(raw)
+                                    ? Math.max(0, Math.min(100, raw))
+                                    : 0,
+                                }));
+                              }}
+                              className="w-24 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-white outline-none focus:border-zinc-500 disabled:opacity-60"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() =>
+                                void handleSaveDriverPayment(entry.member.id)
+                              }
+                              disabled={
+                                driverPaymentsLoading ||
+                                savingDriverPaymentFor === entry.member.id
+                              }
+                              className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {savingDriverPaymentFor === entry.member.id
+                                ? "Saving..."
+                                : "Save"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             <section className="space-y-4">
               {filteredTeams.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/40 p-8 text-center">
@@ -497,6 +745,24 @@ export default function TeamsPage() {
                         {team.members.length} driver
                         {team.members.length === 1 ? "" : "s"}
                       </p>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+                          <p className="text-xs uppercase tracking-wider text-zinc-500">
+                            Earned
+                          </p>
+                          <p className="mt-1 font-semibold text-zinc-100">
+                            {formatMoney(team.totalEarned)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+                          <p className="text-xs uppercase tracking-wider text-zinc-500">
+                            Bank
+                          </p>
+                          <p className="mt-1 font-semibold text-zinc-100">
+                            {formatMoney(team.virtualBank)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto">

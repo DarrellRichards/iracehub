@@ -5,7 +5,6 @@ import {
   getIracingCustIdFromJwt,
 } from "@/lib/auth/iracing";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:2300";
 
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     const iracingCustId = getIracingCustIdFromJwt(tokens.access_token);
     const profile = await fetchMemberProfileFromIracing(tokens.access_token);
 
-    const user = await prisma.user.upsert({
+    await prisma.user.upsert({
       where: { iracingCustId },
       create: {
         iracingCustId,
@@ -50,7 +49,6 @@ export async function GET(request: NextRequest) {
         memberSince: profile.memberSince,
         lastLoginAt: new Date(),
       },
-      select: { id: true },
     });
 
     const isProduction = process.env.NODE_ENV === "production";

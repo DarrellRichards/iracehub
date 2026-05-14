@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { formatMoney } from "@/lib/money";
 
 interface DriverSummary {
   starts: number;
@@ -33,6 +34,7 @@ interface DriverResultRow {
   pointsBase: number;
   pointsAdjustment: number;
   finalPoints: number;
+  virtualEarnings: number | null;
   provisional: boolean;
   notes: string | null;
   raceSession: {
@@ -146,6 +148,29 @@ interface TeamContextResponse {
   } | null;
 }
 
+interface LeagueMemberProfileResponse {
+  league: {
+    id: string;
+    virtualModeEnabled: boolean;
+  };
+  targetProfile: {
+    id: string;
+    custId: number;
+    displayName: string;
+    carNumber: string | null;
+    nickName: string | null;
+    profileHeadline: string | null;
+    profileBio: string | null;
+  };
+  virtualMoney: {
+    raceCount: number;
+    totalPayout: number;
+    totalEntryCost: number;
+    netEarned: number;
+  };
+  canEdit: boolean;
+}
+
 async function readJsonSafely<T>(response: Response): Promise<T | null> {
   try {
     const raw = await response.text();
@@ -170,6 +195,14 @@ export default function DriverProfilePage() {
   const [teamActionLoading, setTeamActionLoading] = useState<string | null>(
     null,
   );
+  const [leagueProfile, setLeagueProfile] =
+    useState<LeagueMemberProfileResponse | null>(null);
+  const [profileHeadlineInput, setProfileHeadlineInput] = useState("");
+  const [profileBioInput, setProfileBioInput] = useState("");
+  const [profileSaveStatus, setProfileSaveStatus] = useState<string | null>(
+    null,
+  );
+  const [profileSaving, setProfileSaving] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -189,14 +222,21 @@ export default function DriverProfilePage() {
       setLoading(true);
       setError(null);
       setTeamError(null);
+      setProfileSaveStatus(null);
       try {
-        const [driverRes, teamRes] = await Promise.all([
+        const [driverRes, teamRes, profileRes] = await Promise.all([
           fetch(`/api/drivers/${params.custId}`, {
             cache: "no-store",
           }),
           fromLeagueId
             ? fetch(
                 `/api/leagues/${fromLeagueId}/teams?targetCustId=${params.custId}`,
+                { cache: "no-store" },
+              )
+            : Promise.resolve(null),
+          fromLeagueId
+            ? fetch(
+                `/api/leagues/${fromLeagueId}/members/profile?custId=${params.custId}`,
                 { cache: "no-store" },
               )
             : Promise.resolve(null),
@@ -218,15 +258,33 @@ export default function DriverProfilePage() {
             )
           : null;
 
+        const profilePayload = profileRes
+          ? await readJsonSafely<
+              LeagueMemberProfileResponse & { error?: string }
+            >(profileRes)
+          : null;
+
         if (teamRes && (!teamRes.ok || !teamPayload)) {
           throw new Error(
             teamPayload?.error ?? `team_fetch_failed_${teamRes.status}`,
           );
         }
 
+        if (profileRes && (!profileRes.ok || !profilePayload)) {
+          throw new Error(
+            profilePayload?.error ??
+              `profile_fetch_failed_${profileRes.status}`,
+          );
+        }
+
         if (!cancelled) {
           setData(driverPayload);
           setTeamData(teamPayload);
+          setLeagueProfile(profilePayload);
+          setProfileHeadlineInput(
+            profilePayload?.targetProfile.profileHeadline ?? "",
+          );
+          setProfileBioInput(profilePayload?.targetProfile.profileBio ?? "");
         }
       } catch (err) {
         if (!cancelled) {
@@ -258,6 +316,37 @@ export default function DriverProfilePage() {
 
   async function refreshTeamContext() {
     setReloadToken((token) => token + 1);
+  }
+
+  async function handleSaveLeagueProfile() {
+    if (!fromLeagueId || !leagueProfile?.canEdit) return;
+
+    setProfileSaving(true);
+    setProfileSaveStatus(null);
+    try {
+      const res = await fetch(`/api/leagues/${fromLeagueId}/members/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileHeadline: profileHeadlineInput,
+          profileBio: profileBioInput,
+        }),
+      });
+
+      const payload = await readJsonSafely<{ error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(payload?.error ?? `profile_save_failed_${res.status}`);
+      }
+
+      setProfileSaveStatus("Profile updated.");
+      setReloadToken((token) => token + 1);
+    } catch (err) {
+      setProfileSaveStatus(
+        err instanceof Error ? err.message : "profile_save_failed",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
   }
 
   async function handleCreateTeam() {
@@ -407,6 +496,128 @@ export default function DriverProfilePage() {
                 iRacing ID #{data.driver.custId}
               </p>
             </div>
+
+            {fromLeagueId && leagueProfile && (
+              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+                <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div>
+                    <h2 className="text-lg font-semibold">League Profile</h2>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Profile details are saved only for this league.
+                    </p>
+
+                    {leagueProfile.canEdit ? (
+                      <div className="mt-4 space-y-3">
+                        <label className="block text-xs text-zinc-400 space-y-1">
+                          <span className="block uppercase tracking-widest">
+                            Headline
+                          </span>
+                          <input
+                            value={profileHeadlineInput}
+                            onChange={(event) =>
+                              setProfileHeadlineInput(event.target.value)
+                            }
+                            maxLength={80}
+                            placeholder="Short driver headline"
+                            className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-zinc-600"
+                          />
+                        </label>
+
+                        <label className="block text-xs text-zinc-400 space-y-1">
+                          <span className="block uppercase tracking-widest">
+                            Bio
+                          </span>
+                          <textarea
+                            value={profileBioInput}
+                            onChange={(event) =>
+                              setProfileBioInput(event.target.value)
+                            }
+                            maxLength={1200}
+                            rows={4}
+                            placeholder="Tell your league a little about your driving style, goals, or team role."
+                            className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-zinc-500 focus:border-zinc-600"
+                          />
+                        </label>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs text-zinc-500">
+                            {profileHeadlineInput.length}/80 ·{" "}
+                            {profileBioInput.length}/1200
+                          </p>
+                          <button
+                            onClick={handleSaveLeagueProfile}
+                            disabled={profileSaving}
+                            className="rounded-xl border border-red-800/50 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors hover:border-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {profileSaving ? "Saving..." : "Save Profile"}
+                          </button>
+                        </div>
+
+                        {profileSaveStatus && (
+                          <p className="text-sm text-zinc-300">
+                            {profileSaveStatus}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                        <p className="text-sm font-medium text-zinc-200">
+                          {leagueProfile.targetProfile.profileHeadline ??
+                            "No headline yet"}
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-400">
+                          {leagueProfile.targetProfile.profileBio ??
+                            "No bio set for this league."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <p className="text-xs uppercase tracking-widest text-zinc-500">
+                      Virtual Money
+                    </p>
+                    {leagueProfile.league.virtualModeEnabled ? (
+                      <>
+                        <p className="mt-2 text-3xl font-black text-white">
+                          {formatMoney(leagueProfile.virtualMoney.netEarned)}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Net earned in this league
+                        </p>
+
+                        <div className="mt-4 space-y-2 text-sm text-zinc-300">
+                          <div className="flex items-center justify-between">
+                            <span className="text-zinc-500">Races</span>
+                            <span>{leagueProfile.virtualMoney.raceCount}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-zinc-500">Total Payout</span>
+                            <span>
+                              {formatMoney(
+                                leagueProfile.virtualMoney.totalPayout,
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-zinc-500">Entry Cost</span>
+                            <span>
+                              {formatMoney(
+                                leagueProfile.virtualMoney.totalEntryCost,
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Virtual mode is currently disabled for this league.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
@@ -781,6 +992,7 @@ export default function DriverProfilePage() {
                         <th className="text-right px-3 py-2">Fin</th>
                         <th className="text-right px-3 py-2">Start</th>
                         <th className="text-right px-3 py-2">Pts</th>
+                        <th className="text-right px-3 py-2">Earn</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -821,6 +1033,11 @@ export default function DriverProfilePage() {
                             {result.finalPoints % 1 === 0
                               ? result.finalPoints
                               : result.finalPoints.toFixed(1)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold text-zinc-200">
+                            {result.virtualEarnings == null
+                              ? "—"
+                              : formatMoney(result.virtualEarnings)}
                           </td>
                         </tr>
                       ))}

@@ -191,6 +191,20 @@ export async function GET(
             series: { leagueId: league.id },
             season: { isActive: true, hidden: false },
             eventDate: { gte: now },
+            OR: [
+              {
+                importedSession: {
+                  is: null,
+                },
+              },
+              {
+                importedSession: {
+                  is: {
+                    hasResults: false,
+                  },
+                },
+              },
+            ],
           },
           orderBy: [{ eventDate: "asc" }, { raceOrder: "asc" }],
           take: scheduleLimit,

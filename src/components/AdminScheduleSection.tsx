@@ -60,6 +60,8 @@ interface Result {
   provisional: boolean;
   pointsBase: number;
   pointsAdjustment: number;
+  bonusPoints: number;
+  penaltyPoints: number;
   finalPoints: number;
   notes: string | null;
 }
@@ -416,6 +418,9 @@ function ScheduleEventRow({
   );
   const [creatingSession, setCreatingSession] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
+  const [editingResult, setEditingResult] = useState<Result | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showAddProvisionalModal, setShowAddProvisionalModal] = useState(false);
 
   const session = schedule.importedSession;
 
@@ -448,31 +453,87 @@ function ScheduleEventRow({
   }, [expanded, raceSessionId, results, fetchResults]);
 
   const handleShowImport = async () => {
-    if (!raceSessionId) {
-      // Create a placeholder session first
-      setCreatingSession(true);
-      try {
-        const res = await fetch(
-          `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ scheduleId: schedule.id }),
-          },
-        );
-        if (!res.ok) throw new Error("failed to create session");
-        const data = (await res.json()) as { id: string };
-        setRaceSessionId(data.id);
-      } catch (err) {
-        alert(err instanceof Error ? err.message : "error creating session");
-        return;
-      } finally {
-        setCreatingSession(false);
-      }
-    }
+    const sessionId = await ensureRaceSession();
+    if (!sessionId) return;
     setShowImport((prev) => !prev);
     if (!expanded) setExpanded(true);
   };
+
+  const ensureRaceSession = useCallback(async () => {
+    if (raceSessionId) return raceSessionId;
+
+    setCreatingSession(true);
+    try {
+      const res = await fetch(
+        `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scheduleId: schedule.id }),
+        },
+      );
+      if (!res.ok) throw new Error("failed to create session");
+      const data = (await res.json()) as { id: string };
+      setRaceSessionId(data.id);
+      return data.id;
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "error creating session");
+      return null;
+    } finally {
+      setCreatingSession(false);
+    }
+  }, [leagueId, raceSessionId, schedule.id, seasonId, seriesId]);
+
+  const handleOpenAddProvisional = useCallback(async () => {
+    const sessionId = await ensureRaceSession();
+    if (!sessionId) return;
+    setShowAddProvisionalModal(true);
+    if (!expanded) setExpanded(true);
+  }, [ensureRaceSession, expanded]);
+
+  const handleAddProvisional = useCallback(
+    async ({
+      custId,
+      displayName,
+      notes,
+    }: {
+      custId: number;
+      displayName: string;
+      notes?: string;
+    }) => {
+      const sessionId = await ensureRaceSession();
+      if (!sessionId) return;
+
+      const response = await fetch(
+        `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions/${sessionId}/results`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            custId,
+            displayName,
+            provisional: true,
+            notes: notes?.trim() || undefined,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+        } | null;
+        throw new Error(
+          payload?.message ?? payload?.error ?? "failed_to_add_provisional",
+        );
+      }
+
+      await fetchResults(sessionId);
+      setShowAddProvisionalModal(false);
+      onRefresh();
+    },
+    [ensureRaceSession, fetchResults, leagueId, onRefresh, seasonId, seriesId],
+  );
 
   const handleImportSuccess = async () => {
     setShowImport(false);
@@ -683,6 +744,18 @@ function ScheduleEventRow({
             />
           )}
 
+          {!showImport && (
+            <div className="mb-3 flex justify-end">
+              <button
+                onClick={handleOpenAddProvisional}
+                disabled={creatingSession}
+                className="text-xs px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:border-yellow-500/50 hover:text-yellow-300 disabled:opacity-40 transition-colors"
+              >
+                {creatingSession ? "Creating Session..." : "+ Add Provisional"}
+              </button>
+            </div>
+          )}
+
           {/* Results table */}
           {!showImport && (
             <>
@@ -710,7 +783,12 @@ function ScheduleEventRow({
                         <th className="text-center py-1.5 pr-3 font-medium">
                           Inc
                         </th>
-                        <th className="text-right py-1.5 font-medium">Pts</th>
+                        <th className="text-right py-1.5 pr-3 font-medium">
+                          Pts
+                        </th>
+                        <th className="text-center py-1.5 font-medium">
+                          Action
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800/40">
@@ -744,8 +822,20 @@ function ScheduleEventRow({
                           <td className="py-1.5 pr-3 text-center text-zinc-400">
                             {r.incidents ?? "—"}
                           </td>
-                          <td className="py-1.5 text-right font-semibold text-white">
+                          <td className="py-1.5 pr-3 text-right font-semibold text-white">
                             {r.finalPoints}
+                          </td>
+                          <td className="py-1.5 text-center">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingResult(r);
+                                setShowEditModal(true);
+                              }}
+                              className="text-xs px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:border-blue-500/50 hover:text-blue-400 transition-colors"
+                            >
+                              Edit
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -785,8 +875,433 @@ function ScheduleEventRow({
               ← back to results
             </button>
           )}
+
+          {/* Edit result modal */}
+          {showEditModal && editingResult && raceSessionId && (
+            <EditResultModal
+              result={editingResult}
+              leagueId={leagueId}
+              seriesId={seriesId}
+              seasonId={seasonId}
+              raceSessionId={raceSessionId}
+              onClose={() => {
+                setShowEditModal(false);
+                setEditingResult(null);
+              }}
+              onSave={() => {
+                void fetchResults(raceSessionId);
+                setShowEditModal(false);
+                setEditingResult(null);
+                onRefresh();
+              }}
+            />
+          )}
+
+          {showAddProvisionalModal && raceSessionId && (
+            <AddProvisionalModal
+              existingCustIds={
+                new Set((results ?? []).map((result) => result.custId))
+              }
+              onClose={() => setShowAddProvisionalModal(false)}
+              onSubmit={handleAddProvisional}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── EditResultModal ──────────────────────────────────────────────────────
+
+function EditResultModal({
+  result,
+  leagueId,
+  seriesId,
+  seasonId,
+  raceSessionId,
+  onClose,
+  onSave,
+}: {
+  result: Result;
+  leagueId: string;
+  seriesId: string;
+  seasonId: string;
+  raceSessionId: string;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const [form, setForm] = useState({
+    finishPosition: result.finishPosition?.toString() ?? "",
+    startPosition: result.startPosition?.toString() ?? "",
+    lapsCompleted: result.lapsCompleted?.toString() ?? "",
+    incidents: result.incidents?.toString() ?? "",
+    provisional: result.provisional,
+    pointsAdjustment: result.pointsAdjustment.toString(),
+    bonusPoints: result.bonusPoints.toString(),
+    penaltyPoints: result.penaltyPoints.toString(),
+    notes: result.notes ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const baseUrl = `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions/${raceSessionId}/results/${result.id}`;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch(baseUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          finishPosition: form.finishPosition
+            ? parseInt(form.finishPosition, 10)
+            : undefined,
+          startPosition: form.startPosition
+            ? parseInt(form.startPosition, 10)
+            : undefined,
+          lapsCompleted: form.lapsCompleted
+            ? parseInt(form.lapsCompleted, 10)
+            : undefined,
+          incidents: form.incidents ? parseInt(form.incidents, 10) : undefined,
+          provisional: form.provisional,
+          pointsAdjustment: parseFloat(form.pointsAdjustment) || 0,
+          bonusPoints: parseFloat(form.bonusPoints) || 0,
+          penaltyPoints: parseFloat(form.penaltyPoints) || 0,
+          notes: form.notes || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("save_failed");
+      onSave();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to save result");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md max-h-[90vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-white">Edit Result</h2>
+            <p className="text-sm text-zinc-400">{result.displayName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-400 hover:text-white text-2xl leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Finish Position
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={form.finishPosition}
+              onChange={(e) =>
+                setForm({ ...form, finishPosition: e.target.value })
+              }
+              placeholder="e.g., 1"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Start Position
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={form.startPosition}
+              onChange={(e) =>
+                setForm({ ...form, startPosition: e.target.value })
+              }
+              placeholder="e.g., 10"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Laps Completed
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={form.lapsCompleted}
+              onChange={(e) =>
+                setForm({ ...form, lapsCompleted: e.target.value })
+              }
+              placeholder="e.g., 50"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Incidents
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={form.incidents}
+              onChange={(e) => setForm({ ...form, incidents: e.target.value })}
+              placeholder="e.g., 2"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Points Adjustment
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={form.pointsAdjustment}
+              onChange={(e) =>
+                setForm({ ...form, pointsAdjustment: e.target.value })
+              }
+              placeholder="e.g., 0"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Bonus Points
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={form.bonusPoints}
+              onChange={(e) =>
+                setForm({ ...form, bonusPoints: e.target.value })
+              }
+              placeholder="e.g., 5"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-green-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Penalty Points
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={form.penaltyPoints}
+              onChange={(e) =>
+                setForm({ ...form, penaltyPoints: e.target.value })
+              }
+              placeholder="e.g., 2"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.provisional}
+                onChange={(e) =>
+                  setForm({ ...form, provisional: e.target.checked })
+                }
+                className="w-4 h-4 rounded border border-zinc-600 bg-zinc-700 text-red-500 focus:ring-0"
+              />
+              <span className="text-sm text-zinc-300">Provisional Result</span>
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Notes
+            </label>
+            <textarea
+              rows={2}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Optional notes..."
+              className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm focus:border-red-500 focus:outline-none resize-none"
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-600/50 text-white text-sm font-medium transition-colors"
+            >
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 rounded-lg border border-zinc-700 hover:border-zinc-600 text-zinc-300 hover:text-white text-sm font-medium transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function AddProvisionalModal({
+  existingCustIds,
+  onClose,
+  onSubmit,
+}: {
+  existingCustIds: Set<number>;
+  onClose: () => void;
+  onSubmit: (data: {
+    custId: number;
+    displayName: string;
+    notes?: string;
+  }) => Promise<void>;
+}) {
+  const [custId, setCustId] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const parsedCustId = Number.parseInt(custId, 10);
+    if (!Number.isInteger(parsedCustId) || parsedCustId <= 0) {
+      setError("Enter a valid iRacing Customer ID.");
+      return;
+    }
+
+    if (!displayName.trim()) {
+      setError("Enter a display name.");
+      return;
+    }
+
+    if (existingCustIds.has(parsedCustId)) {
+      setError("This driver is already in results for this race.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSubmit({
+        custId: parsedCustId,
+        displayName: displayName.trim(),
+        notes: notes.trim() || undefined,
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "failed_to_add_provisional",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-white">Add Provisional</h2>
+            <p className="text-sm text-zinc-400">
+              Add a driver not currently in race results.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-400 hover:text-white text-2xl leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              iRacing Customer ID
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={custId}
+              onChange={(e) => setCustId(e.target.value)}
+              placeholder="e.g., 123456"
+              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Display Name
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Driver name"
+              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-2">
+              Notes (optional)
+            </label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Reason/details"
+              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 resize-none"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 rounded-lg bg-red-600 hover:bg-red-500 disabled:bg-red-600/50 px-4 py-2 text-sm font-medium text-white transition-colors"
+            >
+              {saving ? "Adding..." : "Add Provisional"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-zinc-700 hover:border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

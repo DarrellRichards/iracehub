@@ -24,28 +24,35 @@ model User {
 }
 
 model League {
-    id               String    @id @default(cuid())
-    iracingLeagueId  Int       @unique @map("iracing_league_id")
-    leagueName       String    @map("league_name")
-    ownerCustId      Int?      @map("owner_cust_id")
-    createdAtIracing DateTime? @map("created_at_iracing")
-    hidden           Boolean?
-    message          String?
-    about            String?
-    url              String?
-    recruiting       Boolean?
-    rules            String?
-    privateWall      Boolean?  @map("private_wall")
-    privateRoster    Boolean?  @map("private_roster")
-    privateSchedule  Boolean?  @map("private_schedule")
-    privateResults   Boolean?  @map("private_results")
-    rosterCount      Int?      @map("roster_count")
-    smallLogo        String?   @map("small_logo")
-    largeLogo        String?   @map("large_logo")
-    rawLeague        Json?     @map("raw_league")
-    creatorUserId    String?   @map("creator_user_id")
-    createdAt        DateTime  @default(now()) @map("created_at")
-    updatedAt        DateTime  @updatedAt @map("updated_at")
+    id                    String    @id @default(cuid())
+    iracingLeagueId       Int       @unique @map("iracing_league_id")
+    leagueName            String    @map("league_name")
+    ownerCustId           Int?      @map("owner_cust_id")
+    createdAtIracing      DateTime? @map("created_at_iracing")
+    hidden                Boolean?
+    message               String?
+    about                 String?
+    url                   String?
+    recruiting            Boolean?
+    rules                 String?
+    privateWall           Boolean?  @map("private_wall")
+    privateRoster         Boolean?  @map("private_roster")
+    privateSchedule       Boolean?  @map("private_schedule")
+    privateResults        Boolean?  @map("private_results")
+    rosterCount           Int?      @map("roster_count")
+    smallLogo             String?   @map("small_logo")
+    largeLogo             String?   @map("large_logo")
+    rawLeague             Json?     @map("raw_league")
+    virtualModeEnabled    Boolean   @default(false) @map("virtual_mode_enabled")
+    virtualBaselinePayout Json      @default("[]") @map("virtual_baseline_payout")
+    virtualEntryFee       Int       @default(0) @map("virtual_entry_fee")
+    virtualStartingMoney  Int       @default(0) @map("virtual_starting_money")
+    virtualIncLimit       Int       @default(0) @map("virtual_inc_limit")
+    virtualCarReplaceCost Int       @default(0) @map("virtual_car_replace_cost")
+    virtualTeamCost       Int       @default(0) @map("virtual_team_cost")
+    creatorUserId         String?   @map("creator_user_id")
+    createdAt             DateTime  @default(now()) @map("created_at")
+    updatedAt             DateTime  @updatedAt @map("updated_at")
 
     creator       User?                @relation("LeagueCreator", fields: [creatorUserId], references: [id], onDelete: SetNull)
     memberships   LeagueMembership[]
@@ -55,6 +62,7 @@ model League {
     members       Member[]             @relation("LeagueMembers")
     teams         Team[]
     raceSessions  RaceSession[]
+    moneyEvents   VirtualMoneyEvent[]
 
     @@map("leagues")
 }
@@ -189,6 +197,9 @@ model Schedule {
     trackName           String?  @map("track_name")
     trackId             Int?     @map("track_id")
     raceLength          String?  @map("race_length") // e.g. "50 laps" or "1:30:00"
+    virtualPurse        Int      @default(0) @map("virtual_purse")
+    virtualEntryFee     Int      @default(0) @map("virtual_entry_fee")
+    virtualPayoutSplit  Json     @default("[]") @map("virtual_payout_split")
     // Stage configuration: [{ "stageNumber": 1, "endLap": 25 }, ...]
     stages              Json     @default("[]")
     // Weather data: { type: "Set"|"Realistic", skies?, temp?, humidity?, fog?, windDirection?, windSpeed? }
@@ -203,6 +214,7 @@ model Schedule {
     series          Series              @relation(fields: [seriesId], references: [id], onDelete: Cascade)
     importedSession RaceSession?
     registrations   EventRegistration[]
+    moneyEvents     VirtualMoneyEvent[]
 
     @@unique([seasonId, raceOrder])
     @@map("schedules")
@@ -220,6 +232,9 @@ model Member {
     leagueMemberSince DateTime @map("league_member_since")
     carNumber         String?  @map("car_number")
     nickName          String?  @map("nick_name")
+    profileHeadline   String?  @map("profile_headline")
+    profileBio        String?  @map("profile_bio")
+    earnedVirtual     Int      @default(0) @map("earned_virtual")
     // Helmet data: { pattern, color1, color2, color3, face_type, helmet_type }
     helmet            Json     @default("{}")
     lastSyncedAt      DateTime @default(now()) @map("last_synced_at")
@@ -233,6 +248,8 @@ model Member {
     captainedTeams      Team[]              @relation("TeamCaptain")
     sentTeamInvites     TeamInvite[]        @relation("TeamInviteSender")
     receivedTeamInvites TeamInvite[]        @relation("TeamInviteRecipient")
+    driverPaymentRules  TeamDriverPayment[] @relation("DriverPaymentRules")
+    moneyEvents         VirtualMoneyEvent[]
 
     @@unique([leagueId, custId])
     @@map("members")
@@ -253,6 +270,31 @@ model EventRegistration {
     @@map("event_registrations")
 }
 
+enum VirtualMoneyEventType {
+    ENTRY_FEE_DEBIT
+    ENTRY_FEE_REFUND
+}
+
+model VirtualMoneyEvent {
+    id           String                @id @default(cuid())
+    leagueId     String                @map("league_id")
+    memberId     String                @map("member_id")
+    scheduleId   String?               @map("schedule_id")
+    eventType    VirtualMoneyEventType @map("event_type")
+    amount       Int
+    balanceAfter Int?                  @map("balance_after")
+    note         String?
+    createdAt    DateTime              @default(now()) @map("created_at")
+
+    league   League    @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    member   Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+    schedule Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+    @@index([leagueId, memberId, createdAt])
+    @@index([scheduleId])
+    @@map("virtual_money_events")
+}
+
 enum TeamRole {
     CAPTAIN
     DRIVER
@@ -270,13 +312,16 @@ model Team {
     leagueId        String   @map("league_id")
     name            String
     captainMemberId String   @map("captain_member_id")
+    virtualBank     Int      @default(0) @map("virtual_bank")
+    totalEarned     Int      @default(0) @map("total_earned")
     createdAt       DateTime @default(now()) @map("created_at")
     updatedAt       DateTime @updatedAt @map("updated_at")
 
-    league      League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
-    captain     Member       @relation("TeamCaptain", fields: [captainMemberId], references: [id], onDelete: Cascade)
-    members     TeamMember[]
-    invitations TeamInvite[]
+    league         League              @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    captain        Member              @relation("TeamCaptain", fields: [captainMemberId], references: [id], onDelete: Cascade)
+    members        TeamMember[]
+    invitations    TeamInvite[]
+    driverPayments TeamDriverPayment[]
 
     @@unique([leagueId, name])
     @@index([captainMemberId])
@@ -298,6 +343,22 @@ model TeamMember {
     @@unique([teamId, memberId])
     @@index([teamId])
     @@map("team_members")
+}
+
+model TeamDriverPayment {
+    id             String   @id @default(cuid())
+    teamId         String   @map("team_id")
+    memberId       String   @map("member_id")
+    paymentPercent Int      @map("payment_percent") // 0-100, e.g. 20 = 20%
+    createdAt      DateTime @default(now()) @map("created_at")
+    updatedAt      DateTime @updatedAt @map("updated_at")
+
+    team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+    driver Member @relation("DriverPaymentRules", fields: [memberId], references: [id], onDelete: Cascade)
+
+    @@unique([teamId, memberId])
+    @@index([teamId])
+    @@map("team_driver_payments")
 }
 
 model TeamInvite {
@@ -385,6 +446,8 @@ model RaceSessionResult {
     // Stage finish positions in order, matching schedule stages: [5, 1, ...]
     stageFinishes    Json     @default("[]") @map("stage_finishes")
     pointsAdjustment Float    @default(0) @map("points_adjustment")
+    bonusPoints      Float    @default(0) @map("bonus_points")
+    penaltyPoints    Float    @default(0) @map("penalty_points")
     finalPoints      Float    @default(0) @map("final_points")
     notes            String?
     rawResult        Json?    @map("raw_result")

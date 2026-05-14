@@ -20,6 +20,27 @@ function toAbsoluteUrl(endpointOrUrl: string): string {
   return `${IRACING_BASE_URL}${endpointOrUrl.startsWith("/") ? "" : "/"}${endpointOrUrl}`;
 }
 
+async function parseJsonOrThrow<T>(response: Response, context: string) {
+  const text = await response.text();
+
+  if (!text) {
+    throw new IracingApiError(
+      `${context} failed: empty_response`,
+      response.status || 502,
+    );
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const preview = text.slice(0, 200).replace(/\s+/g, " ").trim();
+    throw new IracingApiError(
+      `${context} failed: non_json_response (${preview || "no_content"})`,
+      response.status || 502,
+    );
+  }
+}
+
 export async function fetchIracingJson<T>(
   accessToken: string,
   endpointOrUrl: string,
@@ -41,7 +62,7 @@ export async function fetchIracingJson<T>(
     );
   }
 
-  return (await response.json()) as T;
+  return await parseJsonOrThrow<T>(response, "iRacing API request");
 }
 
 export async function fetchIracingLinkedJson<T>(
@@ -66,7 +87,10 @@ export async function fetchIracingLinkedJson<T>(
       );
     }
 
-    return (await linkedResponse.json()) as T;
+    return await parseJsonOrThrow<T>(
+      linkedResponse,
+      "iRacing linked JSON request",
+    );
   }
 
   return pointerData as T;

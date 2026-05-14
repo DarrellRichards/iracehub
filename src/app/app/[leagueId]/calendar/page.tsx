@@ -90,6 +90,8 @@ interface IracingSession {
   track?: { track_name?: string };
 }
 
+const REGISTRATION_LOCK_WINDOW_MS = 20 * 60 * 1000;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtDate(dateStr: string) {
@@ -106,6 +108,55 @@ function fmtTime(dateStr: string) {
     minute: "2-digit",
     timeZoneName: "short",
   });
+}
+
+function getRegistrationState(args: {
+  eventDate: string;
+  registrationEnabled: boolean;
+  hasResults: boolean;
+}) {
+  const eventTime = new Date(args.eventDate).getTime();
+  const now = Date.now();
+  const lockTime = eventTime - REGISTRATION_LOCK_WINDOW_MS;
+
+  if (!args.registrationEnabled) {
+    return {
+      isClosed: true,
+      buttonLabel: "Registration Disabled",
+      message: "Registration is disabled for this event.",
+    };
+  }
+
+  if (args.hasResults) {
+    return {
+      isClosed: true,
+      buttonLabel: "Results Posted",
+      message:
+        "Registration is closed because results have already been posted.",
+    };
+  }
+
+  if (now >= eventTime) {
+    return {
+      isClosed: true,
+      buttonLabel: "Event Passed",
+      message: "This event has already started or finished.",
+    };
+  }
+
+  if (now >= lockTime) {
+    return {
+      isClosed: true,
+      buttonLabel: "Registration Closed",
+      message: "Registration closes 20 minutes before the event start time.",
+    };
+  }
+
+  return {
+    isClosed: false,
+    buttonLabel: null,
+    message: null,
+  };
 }
 
 async function readJsonSafely<T>(response: Response): Promise<T | null> {
@@ -454,6 +505,11 @@ function EventCard({
     null,
   );
   const pastDate = new Date(schedule.eventDate) < new Date();
+  const registrationState = getRegistrationState({
+    eventDate: schedule.eventDate,
+    registrationEnabled: schedule.registrationEnabled,
+    hasResults: Boolean(session?.hasResults),
+  });
 
   const fetchResults = useCallback(async () => {
     if (!session?.id) return;
@@ -482,7 +538,7 @@ function EventCard({
   };
 
   const handleRegistrationToggle = async () => {
-    if (!schedule.registrationEnabled || pastDate) return;
+    if (registrationState.isClosed) return;
 
     setRegistering(true);
     setRegistrationError(null);
@@ -658,21 +714,24 @@ function EventCard({
             <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-zinc-400">
-                  {schedule.isRegisteredByMe
-                    ? "You are registered for this event."
-                    : "Register for this event to confirm participation."}
+                  {registrationState.message ??
+                    (schedule.isRegisteredByMe
+                      ? "You are registered for this event."
+                      : "Register for this event to confirm participation.")}
                 </p>
                 <button
                   onClick={handleRegistrationToggle}
-                  disabled={registering || pastDate}
+                  disabled={registering || registrationState.isClosed}
                   className={`text-xs px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-60 ${
-                    schedule.isRegisteredByMe
+                    schedule.isRegisteredByMe && !registrationState.isClosed
                       ? "border-zinc-700 text-zinc-300 hover:border-red-500/60 hover:text-red-400"
-                      : "border-green-700/60 text-green-400 hover:border-green-500"
+                      : registrationState.isClosed
+                        ? "border-zinc-800 text-zinc-500"
+                        : "border-green-700/60 text-green-400 hover:border-green-500"
                   }`}
                 >
-                  {pastDate
-                    ? "Event Passed"
+                  {registrationState.isClosed
+                    ? registrationState.buttonLabel
                     : registering
                       ? "Saving..."
                       : schedule.isRegisteredByMe

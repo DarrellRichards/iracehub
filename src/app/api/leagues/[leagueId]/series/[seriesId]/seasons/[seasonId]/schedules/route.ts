@@ -13,9 +13,24 @@ interface ScheduleRequest {
   trackName?: string;
   trackId?: number;
   raceLength?: string;
+  virtualPurse?: number;
+  virtualEntryFee?: number;
+  virtualPayoutSplit?: number[];
   stages?: Array<{ stageNumber: number; endLap: number }>;
   weather: Record<string, unknown>;
   raceOrder: number;
+}
+
+function normalizePayoutSplit(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((amount) =>
+      Number.isFinite(amount) && Number(amount) >= 0
+        ? Math.floor(Number(amount))
+        : 0,
+    )
+    .filter((amount) => amount >= 0);
 }
 
 function normalizeStages(
@@ -215,6 +230,18 @@ export async function POST(
         trackName: data.trackName,
         trackId: data.trackId,
         raceLength: data.raceLength,
+        virtualPurse:
+          Number.isFinite(data.virtualPurse) && Number(data.virtualPurse) >= 0
+            ? Math.floor(Number(data.virtualPurse))
+            : 0,
+        virtualEntryFee:
+          Number.isFinite(data.virtualEntryFee) &&
+          Number(data.virtualEntryFee) >= 0
+            ? Math.floor(Number(data.virtualEntryFee))
+            : 0,
+        virtualPayoutSplit: normalizePayoutSplit(
+          data.virtualPayoutSplit,
+        ) as Prisma.InputJsonValue,
         stages: stages as Prisma.InputJsonValue,
         weather: data.weather as Prisma.InputJsonValue,
         raceOrder: data.raceOrder,

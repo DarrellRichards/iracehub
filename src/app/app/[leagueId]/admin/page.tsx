@@ -21,6 +21,41 @@ interface LeagueDetail {
   admin: boolean;
 }
 
+interface VirtualMoneySettings {
+  id: string;
+  virtualModeEnabled: boolean;
+  virtualBaselinePayout: number[];
+  virtualEntryFee: number;
+  virtualStartingMoney: number;
+  virtualIncLimit: number;
+  virtualCarReplaceCost: number;
+  virtualTeamCost: number;
+}
+
+const VIRTUAL_PAYOUT_SLOTS = 60;
+
+async function readJsonSafely<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function getApiErrorMessage(response: Response, fallback: string) {
+  const payload = await readJsonSafely<{ error?: string; message?: string }>(
+    response,
+  );
+
+  if (payload?.message) return payload.message;
+  if (payload?.error) return payload.error;
+
+  return fallback;
+}
+
 interface PointsSystem {
   id: string;
   name: string;
@@ -118,6 +153,9 @@ interface Schedule {
   trackName?: string;
   trackId?: number;
   raceLength?: string;
+  virtualPurse: number;
+  virtualEntryFee: number;
+  virtualPayoutSplit: number[];
   stages: Array<{ stageNumber: number; endLap: number }>;
   weather: ScheduleWeather;
   raceOrder: number;
@@ -192,6 +230,20 @@ export default function LeagueAdminPage() {
   const [widgetTargetSelector, setWidgetTargetSelector] =
     useState("#irh-widget");
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [virtualModeEnabled, setVirtualModeEnabled] = useState(false);
+  const [virtualEntryFee, setVirtualEntryFee] = useState(0);
+  const [virtualStartingMoney, setVirtualStartingMoney] = useState(0);
+  const [virtualIncLimit, setVirtualIncLimit] = useState(0);
+  const [virtualCarReplaceCost, setVirtualCarReplaceCost] = useState(0);
+  const [virtualTeamCost, setVirtualTeamCost] = useState(0);
+  const [virtualBaselinePayout, setVirtualBaselinePayout] = useState<number[]>(
+    () => Array.from({ length: VIRTUAL_PAYOUT_SLOTS }, () => 0),
+  );
+  const [savingVirtualMoney, setSavingVirtualMoney] = useState(false);
+  const [virtualMoneyNotice, setVirtualMoneyNotice] = useState<string | null>(
+    null,
+  );
+  const [showVirtualMoneyModal, setShowVirtualMoneyModal] = useState(false);
 
   // Results management
   // Schedule management
@@ -235,13 +287,17 @@ export default function LeagueAdminPage() {
         } else {
           setLeague(found);
           // Fetch series and points systems
-          const [seriesRes, pointsRes, membersRes] = await Promise.all([
-            fetch(`/api/leagues/${found.id}/series`, { cache: "no-store" }),
-            fetch(`/api/leagues/${found.id}/points-systems`, {
-              cache: "no-store",
-            }),
-            fetch(`/api/leagues/${found.id}/members`, { cache: "no-store" }),
-          ]);
+          const [seriesRes, pointsRes, membersRes, virtualMoneyRes] =
+            await Promise.all([
+              fetch(`/api/leagues/${found.id}/series`, { cache: "no-store" }),
+              fetch(`/api/leagues/${found.id}/points-systems`, {
+                cache: "no-store",
+              }),
+              fetch(`/api/leagues/${found.id}/members`, { cache: "no-store" }),
+              fetch(`/api/leagues/${found.id}/virtual-money`, {
+                cache: "no-store",
+              }),
+            ]);
           if (seriesRes.ok) {
             const seriesData = (await seriesRes.json()) as Series[];
             setSeries(seriesData);
@@ -269,6 +325,32 @@ export default function LeagueAdminPage() {
           if (membersRes.ok) {
             setMembers((await membersRes.json()) as Member[]);
             setMemberPage(1);
+          }
+          if (virtualMoneyRes.ok) {
+            const virtualMoney =
+              (await virtualMoneyRes.json()) as VirtualMoneySettings;
+            setVirtualModeEnabled(virtualMoney.virtualModeEnabled);
+            setVirtualEntryFee(virtualMoney.virtualEntryFee);
+            setVirtualStartingMoney(virtualMoney.virtualStartingMoney ?? 0);
+            setVirtualIncLimit(virtualMoney.virtualIncLimit);
+            setVirtualCarReplaceCost(virtualMoney.virtualCarReplaceCost ?? 0);
+            setVirtualTeamCost(virtualMoney.virtualTeamCost);
+
+            const payout = Array.isArray(virtualMoney.virtualBaselinePayout)
+              ? virtualMoney.virtualBaselinePayout
+                  .slice(0, VIRTUAL_PAYOUT_SLOTS)
+                  .map((amount) =>
+                    Number.isFinite(amount) && Number(amount) >= 0
+                      ? Math.floor(Number(amount))
+                      : 0,
+                  )
+              : [];
+
+            while (payout.length < VIRTUAL_PAYOUT_SLOTS) {
+              payout.push(0);
+            }
+
+            setVirtualBaselinePayout(payout);
           }
         }
       } catch (err) {
@@ -381,15 +463,20 @@ export default function LeagueAdminPage() {
       );
 
       if (!res.ok) {
-        const errorData = (await res.json()) as { error?: string };
-        throw new Error(errorData.error ?? "failed_to_sync_seasons");
+        const errorMessage = await getApiErrorMessage(
+          res,
+          "failed_to_sync_seasons",
+        );
+        throw new Error(errorMessage);
       }
 
-      const data = (await res.json()) as {
-        syncedCount?: number;
-        requestedCount?: number;
-        importedSessionsCount?: number;
-      };
+      const data =
+        (await readJsonSafely<{
+          syncedCount?: number;
+          requestedCount?: number;
+          importedSessionsCount?: number;
+        }>(res)) ?? {};
+
       await refreshSeriesSeasons(seriesId);
       alert(
         `Synced ${data.syncedCount ?? 0} of ${data.requestedCount ?? seasonIds.length} selected season(s). Imported ${data.importedSessionsCount ?? 0} session(s).`,
@@ -429,12 +516,12 @@ export default function LeagueAdminPage() {
     );
 
     if (!res.ok) {
-      const errorData = (await res.json()) as {
+      const errorData = await readJsonSafely<{
         error?: string;
         message?: string;
-      };
+      }>(res);
       throw new Error(
-        errorData.message ?? errorData.error ?? "failed_to_create_season",
+        errorData?.message ?? errorData?.error ?? "failed_to_create_season",
       );
     }
 
@@ -501,7 +588,8 @@ export default function LeagueAdminPage() {
 
       if (!res.ok) throw new Error("failed_to_fetch_schedules");
 
-      const schedules = (await res.json()) as AdminSchedule[];
+      const schedules =
+        (await readJsonSafely<AdminSchedule[]>(res))?.filter(Boolean) ?? [];
       setSchedulesBySeason((prev) => ({
         ...prev,
         [seasonId]: schedules,
@@ -548,7 +636,13 @@ export default function LeagueAdminPage() {
         body: JSON.stringify(data),
       });
 
-      if (!res.ok) throw new Error("failed_to_save_schedule");
+      if (!res.ok) {
+        const errorMessage = await getApiErrorMessage(
+          res,
+          "failed_to_save_schedule",
+        );
+        throw new Error(errorMessage);
+      }
 
       await refreshSchedules(
         selectedSeasonForSchedule.id,
@@ -594,21 +688,20 @@ export default function LeagueAdminPage() {
       });
 
       if (!res.ok) {
-        const errorData = (await res.json()) as {
-          error?: string;
-          message?: string;
-        };
-        throw new Error(
-          errorData.message ?? errorData.error ?? "failed_to_sync_members",
+        const errorMessage = await getApiErrorMessage(
+          res,
+          "failed_to_sync_members",
         );
+        throw new Error(errorMessage);
       }
 
-      const data = (await res.json()) as {
-        syncedCount?: number;
-        totalMembers?: number;
-        failedCount?: number;
-        removedCount?: number;
-      };
+      const data =
+        (await readJsonSafely<{
+          syncedCount?: number;
+          totalMembers?: number;
+          failedCount?: number;
+          removedCount?: number;
+        }>(res)) ?? {};
 
       // Reload members
       const membersRes = await fetch(`/api/leagues/${league.id}/members`, {
@@ -630,6 +723,56 @@ export default function LeagueAdminPage() {
       alert(err instanceof Error ? err.message : "error_syncing_members");
     } finally {
       setSyncingMembers(false);
+    }
+  };
+
+  const handleSaveVirtualMoney = async () => {
+    if (!league) return;
+
+    setSavingVirtualMoney(true);
+    setVirtualMoneyNotice(null);
+
+    try {
+      const payload = {
+        virtualModeEnabled,
+        virtualEntryFee: Math.max(0, Math.floor(virtualEntryFee)),
+        virtualStartingMoney: Math.max(0, Math.floor(virtualStartingMoney)),
+        virtualIncLimit: Math.max(0, Math.floor(virtualIncLimit)),
+        virtualCarReplaceCost: Math.max(0, Math.floor(virtualCarReplaceCost)),
+        virtualTeamCost: Math.max(0, Math.floor(virtualTeamCost)),
+        virtualBaselinePayout,
+      };
+
+      const res = await fetch(`/api/leagues/${league.id}/virtual-money`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorData = (await res.json()) as { error?: string };
+        throw new Error(errorData.error ?? "failed_to_save_virtual_money");
+      }
+
+      const updated = (await res.json()) as VirtualMoneySettings;
+      setVirtualModeEnabled(updated.virtualModeEnabled);
+      setVirtualEntryFee(updated.virtualEntryFee);
+      setVirtualStartingMoney(updated.virtualStartingMoney ?? 0);
+      setVirtualIncLimit(updated.virtualIncLimit);
+      setVirtualCarReplaceCost(updated.virtualCarReplaceCost ?? 0);
+      setVirtualTeamCost(updated.virtualTeamCost);
+      setVirtualBaselinePayout(
+        updated.virtualBaselinePayout
+          .slice(0, VIRTUAL_PAYOUT_SLOTS)
+          .map((amount) => (Number.isFinite(amount) ? Math.max(0, amount) : 0)),
+      );
+      setVirtualMoneyNotice("Virtual money settings saved.");
+    } catch (err) {
+      setVirtualMoneyNotice(
+        err instanceof Error ? err.message : "error_saving_virtual_money",
+      );
+    } finally {
+      setSavingVirtualMoney(false);
     }
   };
 
@@ -872,6 +1015,47 @@ export default function LeagueAdminPage() {
                     {league.owner ? "Owner" : "Admin"}
                   </span>
                 </p>
+              </div>
+            </div>
+
+            <div className="mb-12 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold">Virtual Money</h2>
+                  <p className="text-sm text-zinc-400 mt-1">
+                    Configure league-level economy settings. Race purse and
+                    payout split are set per event during schedule creation.
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-zinc-400">
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      Mode: {virtualModeEnabled ? "On" : "Off"}
+                    </span>
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      Entry: ${virtualEntryFee}
+                    </span>
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      Start: ${virtualStartingMoney}
+                    </span>
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      INC Limit: {virtualIncLimit}
+                    </span>
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      Car Replace: ${virtualCarReplaceCost}
+                    </span>
+                    <span className="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1">
+                      Team Cost: ${virtualTeamCost}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setVirtualMoneyNotice(null);
+                    setShowVirtualMoneyModal(true);
+                  }}
+                  className="rounded-lg bg-red-500 hover:bg-red-600 transition-colors px-4 py-2 text-sm font-medium text-white"
+                >
+                  Configure Virtual Money
+                </button>
               </div>
             </div>
 
@@ -1726,40 +1910,6 @@ export default function LeagueAdminPage() {
               )}
             </div>
 
-            {/* Other admin sections */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-              {[
-                {
-                  icon: "👥",
-                  label: "Members",
-                  description:
-                    "View roster, manage member roles, and track participation.",
-                },
-                {
-                  icon: "📅",
-                  label: "Schedule",
-                  description:
-                    "Set up race schedules, tracks, and event details.",
-                },
-                {
-                  icon: "⚙️",
-                  label: "Settings",
-                  description:
-                    "Configure league settings, privacy, and branding.",
-                },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 hover:border-zinc-600 transition-colors cursor-pointer"
-                >
-                  <div className="text-2xl mb-3">{item.icon}</div>
-                  <h3 className="font-bold mb-1">{item.label}</h3>
-                  <p className="text-sm text-zinc-500">{item.description}</p>
-                  <p className="text-xs text-zinc-600 mt-3">Coming soon</p>
-                </div>
-              ))}
-            </div>
-
             {/* Create/Edit Series Modal */}
             {showCreateSeriesModal && (
               <CreateSeriesModal
@@ -1850,6 +2000,174 @@ export default function LeagueAdminPage() {
                 }
               />
             )}
+
+            {showVirtualMoneyModal && (
+              <div
+                className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                onClick={() => setShowVirtualMoneyModal(false)}
+              >
+                <div
+                  className="bg-zinc-900 rounded-2xl border border-zinc-800 max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-bold text-white">
+                        Virtual Money Settings
+                      </h2>
+                      <p className="text-sm text-zinc-400 mt-1">
+                        Configure virtual mode and league-level economy values.
+                        Event payout splits are configured per race in schedule
+                        setup.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowVirtualMoneyModal(false)}
+                      className="rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors px-3 py-1.5 text-xs font-medium text-zinc-300 hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+                      <input
+                        type="checkbox"
+                        checked={virtualModeEnabled}
+                        onChange={(e) =>
+                          setVirtualModeEnabled(e.target.checked)
+                        }
+                        className="h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+                      />
+                      Enable Virtual Mode
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-5">
+                    <label className="text-xs text-zinc-400 space-y-1">
+                      <span className="block">Entry Cost Per Driver ($)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={virtualEntryFee}
+                        onChange={(e) =>
+                          setVirtualEntryFee(
+                            Math.max(
+                              0,
+                              Number.parseInt(e.target.value, 10) || 0,
+                            ),
+                          )
+                        }
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                      />
+                    </label>
+
+                    <label className="text-xs text-zinc-400 space-y-1">
+                      <span className="block">
+                        Starting Balance Per Driver ($)
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={virtualStartingMoney}
+                        onChange={(e) =>
+                          setVirtualStartingMoney(
+                            Math.max(
+                              0,
+                              Number.parseInt(e.target.value, 10) || 0,
+                            ),
+                          )
+                        }
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                      />
+                    </label>
+
+                    <label className="text-xs text-zinc-400 space-y-1">
+                      <span className="block">
+                        INC Limit Before Replace Car
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={virtualIncLimit}
+                        onChange={(e) =>
+                          setVirtualIncLimit(
+                            Math.max(
+                              0,
+                              Number.parseInt(e.target.value, 10) || 0,
+                            ),
+                          )
+                        }
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                      />
+                    </label>
+
+                    <label className="text-xs text-zinc-400 space-y-1">
+                      <span className="block">Car Replacement Cost ($)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={virtualCarReplaceCost}
+                        onChange={(e) =>
+                          setVirtualCarReplaceCost(
+                            Math.max(
+                              0,
+                              Number.parseInt(e.target.value, 10) || 0,
+                            ),
+                          )
+                        }
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                      />
+                    </label>
+
+                    <label className="text-xs text-zinc-400 space-y-1">
+                      <span className="block">Team Ownership Cost ($)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={virtualTeamCost}
+                        onChange={(e) =>
+                          setVirtualTeamCost(
+                            Math.max(
+                              0,
+                              Number.parseInt(e.target.value, 10) || 0,
+                            ),
+                          )
+                        }
+                        className="w-full rounded-lg bg-zinc-950 border border-zinc-700 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:border-red-500"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-400">
+                    Race purse and payout split are now event-specific. Use the
+                    schedule modal for each event to set custom earnings.
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <p className="text-xs text-zinc-500">
+                      Values are stored per league and can be changed any time.
+                    </p>
+                    <button
+                      onClick={handleSaveVirtualMoney}
+                      disabled={savingVirtualMoney}
+                      className="rounded-lg bg-red-500 hover:bg-red-600 disabled:opacity-60 transition-colors px-4 py-2 text-sm font-medium text-white"
+                    >
+                      {savingVirtualMoney
+                        ? "Saving..."
+                        : "Save Virtual Money Settings"}
+                    </button>
+                  </div>
+
+                  {virtualMoneyNotice && (
+                    <p className="mt-3 text-sm text-zinc-300">
+                      {virtualMoneyNotice}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         ) : null}
       </main>
@@ -1893,23 +2211,36 @@ function SyncSeasonsModal({
   useEffect(() => {
     let cancelled = false;
 
-    fetch(`/api/iracing/league-seasons?league_id=${leagueIracingId}`)
-      .then((r) => r.json())
-      .then((data: IracingSeasonOption[]) => {
+    const loadSeasons = async () => {
+      try {
+        const response = await fetch(
+          `/api/iracing/league-seasons?league_id=${leagueIracingId}`,
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            await getApiErrorMessage(response, "failed_to_fetch_seasons"),
+          );
+        }
+
+        const data =
+          (await readJsonSafely<IracingSeasonOption[]>(response)) ?? [];
+
         if (!cancelled) {
           setAvailableSeasons(Array.isArray(data) ? data : []);
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setAvailableSeasons([]);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setIsLoading(false);
         }
-      });
+      }
+    };
+
+    void loadSeasons();
 
     return () => {
       cancelled = true;
@@ -1937,9 +2268,14 @@ function SyncSeasonsModal({
       const res = await fetch(
         `/api/iracing/league-season-sessions?league_id=${leagueIracingId}&season_id=${seasonId}`,
       );
-      if (!res.ok) throw new Error("failed_to_fetch_season_sessions");
+      if (!res.ok) {
+        throw new Error(
+          await getApiErrorMessage(res, "failed_to_fetch_season_sessions"),
+        );
+      }
 
-      const sessions = (await res.json()) as IracingSeasonSessionOption[];
+      const sessions =
+        (await readJsonSafely<IracingSeasonSessionOption[]>(res)) ?? [];
       const normalized = Array.isArray(sessions) ? sessions : [];
 
       setSeasonSessionsBySeasonId((prev) => ({
@@ -2471,11 +2807,25 @@ function CreateSeriesModal({
   const [carsSearch, setCarsSearch] = useState("");
 
   useEffect(() => {
-    fetch("/api/iracing/cars")
-      .then((r) => r.json())
-      .then((data: string[]) => setAllCars(Array.isArray(data) ? data : []))
-      .catch(() => setAllCars([]))
-      .finally(() => setCarsLoading(false));
+    const loadCars = async () => {
+      try {
+        const response = await fetch("/api/iracing/cars");
+        if (!response.ok) {
+          throw new Error(
+            await getApiErrorMessage(response, "failed_to_fetch_cars"),
+          );
+        }
+
+        const data = (await readJsonSafely<string[]>(response)) ?? [];
+        setAllCars(Array.isArray(data) ? data : []);
+      } catch {
+        setAllCars([]);
+      } finally {
+        setCarsLoading(false);
+      }
+    };
+
+    void loadCars();
   }, []);
 
   const filteredCars = allCars.filter((car) =>
