@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { recalculateLeagueVirtualMoney } from "@/lib/virtualMoneyDistribution";
 
+type TransactionOperation = Promise<unknown>;
+
 function createPrismaMock() {
   const memberUpdate = vi.fn(async () => ({}));
   const teamUpdate = vi.fn(async () => ({}));
@@ -16,7 +18,12 @@ function createPrismaMock() {
       update: teamUpdate,
     },
     raceSessionResult: { findMany: vi.fn() },
-    $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
+    $transaction: vi.fn(async (ops: TransactionOperation[]) => {
+      if (!Array.isArray(ops) || ops.some((op) => !(op instanceof Promise))) {
+        throw new Error("invalid_transaction_operations");
+      }
+      return Promise.all(ops);
+    }),
   };
 }
 

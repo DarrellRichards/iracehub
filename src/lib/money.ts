@@ -89,8 +89,9 @@ export function distributeMoney(
   // Handle rounding/correction by applying the delta deterministically
   let delta = amount - totalDistributed;
   let index = 0;
+  const maxIterations = Math.max(1, Math.abs(delta) * Math.max(1, splits.length));
 
-  while (delta !== 0 && splits.length > 0) {
+  while (delta !== 0 && splits.length > 0 && index < maxIterations) {
     const recipient = splits[index % splits.length].recipient;
     const current = result[recipient] ?? 0;
     let adjusted = false;
@@ -105,7 +106,12 @@ export function distributeMoney(
       adjusted = true;
     }
 
-    if (!adjusted && index >= splits.length - 1 && delta < 0) {
+    const cannotAdjustFurther =
+      !adjusted && delta < 0 && index >= splits.length - 1;
+
+    // If we cannot decrement any recipient during a full pass, stop to avoid
+    // an infinite loop on invalid/negative inputs.
+    if (cannotAdjustFurther) {
       break;
     }
 
