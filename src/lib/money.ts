@@ -93,7 +93,7 @@ export function distributeMoney(
   // still comfortably handling realistic per-race payout adjustments.
   const maxIterations = Math.min(
     10_000,
-    Math.max(1, Math.abs(delta) + Math.max(1, splits.length)),
+    Math.max(1, Math.abs(delta) * Math.max(1, splits.length)),
   );
 
   while (delta !== 0 && splits.length > 0 && index < maxIterations) {
@@ -114,8 +114,8 @@ export function distributeMoney(
     const completedPassWithoutAdjustment =
       !adjusted && delta < 0 && index >= splits.length - 1;
 
-    // If we finish a full pass without decrementing while delta is negative,
-    // no recipient can be reduced further, so stop to avoid an infinite loop.
+    // If we complete a full pass without any adjustment while delta is still
+    // negative, all recipients are already at zero and cannot be decremented.
     if (completedPassWithoutAdjustment) {
       break;
     }

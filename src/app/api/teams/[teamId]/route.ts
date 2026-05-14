@@ -21,7 +21,8 @@ export async function GET(
     let iracingCustId: number;
     try {
       iracingCustId = getIracingCustIdFromJwt(accessToken);
-    } catch {
+    } catch (error) {
+      console.error("Error parsing auth token for team details:", error);
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     const user = await prisma.user.findUnique({
