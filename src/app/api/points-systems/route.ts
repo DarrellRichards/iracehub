@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 import { prisma } from "@/lib/prisma";
 import { seedDefaultPointsSystems } from "@/lib/db/seeds";
 

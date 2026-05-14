@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a new feature or improvement for iRaceHub.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Share the use case so the idea can be evaluated in context.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What pain point are you trying to solve?
+      placeholder: As a league admin, I want...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or workflow you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any workarounds or alternative solutions you have considered.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Admin tools
+        - Driver experience
+        - League landing page
+        - Widgets/API
+        - Deployment/docs
+        - Virtual money
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues before creating this request.
+          required: true

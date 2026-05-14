@@ -31,6 +31,8 @@ interface Result {
   provisional: boolean;
   pointsBase: number;
   pointsAdjustment: number;
+  bonusPoints: number;
+  penaltyPoints: number;
   finalPoints: number;
   notes: string | null;
 }
@@ -240,6 +242,8 @@ function EditableResult({
     incidents: result.incidents?.toString() ?? "",
     provisional: result.provisional,
     pointsAdjustment: result.pointsAdjustment.toString(),
+    bonusPoints: result.bonusPoints.toString(),
+    penaltyPoints: result.penaltyPoints.toString(),
     notes: result.notes ?? "",
   });
 
@@ -268,6 +272,8 @@ function EditableResult({
           incidents: form.incidents ? parseInt(form.incidents, 10) : undefined,
           provisional: form.provisional,
           pointsAdjustment: parseFloat(form.pointsAdjustment) || 0,
+          bonusPoints: parseFloat(form.bonusPoints) || 0,
+          penaltyPoints: parseFloat(form.penaltyPoints) || 0,
           notes: form.notes || undefined,
         }),
       });
@@ -311,6 +317,21 @@ function EditableResult({
         <span className="text-xs text-zinc-500 w-14 text-right">
           Inc: {result.incidents ?? "—"}
         </span>
+        {(result.bonusPoints > 0 || result.penaltyPoints > 0) && (
+          <span className="text-xs text-zinc-400 w-20 text-right">
+            {result.bonusPoints > 0 && (
+              <span className="text-green-400">
+                +{result.bonusPoints.toFixed(1)}
+              </span>
+            )}
+            {result.penaltyPoints > 0 && (
+              <span className="text-red-400">
+                {" "}
+                -{result.penaltyPoints.toFixed(1)}
+              </span>
+            )}
+          </span>
+        )}
         <span className="text-xs text-zinc-300 w-16 text-right font-medium">
           {result.finalPoints.toFixed(1)} pts
         </span>
@@ -397,7 +418,7 @@ function EditableResult({
           className="w-full rounded bg-zinc-900 border border-zinc-600 px-2 py-1.5 text-sm text-white focus:outline-none focus:border-red-500"
         />
       </div>
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
         <div>
           <label className="block text-xs text-zinc-400 mb-1">
             Points Adjustment
@@ -408,6 +429,32 @@ function EditableResult({
             value={form.pointsAdjustment}
             onChange={(e) =>
               setForm({ ...form, pointsAdjustment: e.target.value })
+            }
+            className="w-full rounded bg-zinc-900 border border-zinc-600 px-2 py-1.5 text-sm text-white focus:outline-none focus:border-red-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">
+            Bonus Points
+          </label>
+          <input
+            type="number"
+            step="0.5"
+            value={form.bonusPoints}
+            onChange={(e) => setForm({ ...form, bonusPoints: e.target.value })}
+            className="w-full rounded bg-zinc-900 border border-zinc-600 px-2 py-1.5 text-sm text-white focus:outline-none focus:border-green-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">
+            Penalty Points
+          </label>
+          <input
+            type="number"
+            step="0.5"
+            value={form.penaltyPoints}
+            onChange={(e) =>
+              setForm({ ...form, penaltyPoints: e.target.value })
             }
             className="w-full rounded bg-zinc-900 border border-zinc-600 px-2 py-1.5 text-sm text-white focus:outline-none focus:border-red-500"
           />

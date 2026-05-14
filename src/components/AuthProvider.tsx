@@ -51,7 +51,7 @@ const MIN_REFRESH_DELAY_MS = 5 * 1000;
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const lastActivityRef = useRef<number>(Date.now());
+  const lastActivityRef = useRef<number>(0);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** Update activity timestamp on any user interaction. */
@@ -59,7 +59,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     lastActivityRef.current = Date.now();
   }, []);
 
-  const scheduleNextRefresh = useCallback((currentSession: AuthSession) => {
+  const scheduleNextRefresh = useCallback(function scheduleRefresh(
+    currentSession: AuthSession,
+  ) {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
 
     if (!currentSession.authenticated || !currentSession.expiresAt) return;
@@ -75,14 +77,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const msSinceActivity = Date.now() - lastActivityRef.current;
       if (msSinceActivity > REFRESH_INTERVAL_MS) {
         // user inactive — keep scheduler alive and check again later
-        scheduleNextRefresh(currentSession);
+        scheduleRefresh(currentSession);
         return;
       }
 
       const updated = await callRefresh();
       if (updated) {
         setSession(updated);
-        scheduleNextRefresh(updated);
+        scheduleRefresh(updated);
       } else {
         // Refresh failed (token expired) — clear session
         setSession({
@@ -96,6 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    lastActivityRef.current = Date.now();
+
     fetchSession().then((s) => {
       setSession(s);
       setLoading(false);

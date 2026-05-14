@@ -12,6 +12,8 @@ interface UpdateResultRequest {
   incidents?: number | null;
   provisional?: boolean;
   pointsAdjustment?: number;
+  bonusPoints?: number;
+  penaltyPoints?: number;
   notes?: string | null;
 }
 
@@ -140,6 +142,8 @@ export async function PATCH(
       : data.finishPosition;
   const mergedAdjustment =
     data.pointsAdjustment ?? existingResult.pointsAdjustment;
+  const mergedBonus = data.bonusPoints ?? existingResult.bonusPoints;
+  const mergedPenalty = data.penaltyPoints ?? existingResult.penaltyPoints;
   const mergedStageFinishes =
     data.stageFinishes === undefined
       ? parseStageFinishes(existingResult.stageFinishes)
@@ -178,7 +182,9 @@ export async function PATCH(
       provisional: data.provisional,
       pointsBase,
       pointsAdjustment: mergedAdjustment,
-      finalPoints: pointsBase + mergedAdjustment,
+      bonusPoints: mergedBonus,
+      penaltyPoints: mergedPenalty,
+      finalPoints: pointsBase + mergedAdjustment + mergedBonus - mergedPenalty,
       notes: data.notes === undefined ? undefined : data.notes,
     },
   });

@@ -13,9 +13,24 @@ interface ScheduleUpdateRequest {
   trackName?: string;
   trackId?: number;
   raceLength?: string;
+  virtualPurse?: number;
+  virtualEntryFee?: number;
+  virtualPayoutSplit?: number[];
   stages?: Array<{ stageNumber: number; endLap: number }>;
   weather?: Record<string, unknown>;
   raceOrder?: number;
+}
+
+function normalizePayoutSplit(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((amount) =>
+      Number.isFinite(amount) && Number(amount) >= 0
+        ? Math.floor(Number(amount))
+        : 0,
+    )
+    .filter((amount) => amount >= 0);
 }
 
 function normalizeStages(
@@ -106,6 +121,24 @@ export async function PATCH(
     if (data.trackName !== undefined) updateData.trackName = data.trackName;
     if (data.trackId !== undefined) updateData.trackId = data.trackId;
     if (data.raceLength !== undefined) updateData.raceLength = data.raceLength;
+    if (data.virtualPurse !== undefined) {
+      updateData.virtualPurse =
+        Number.isFinite(data.virtualPurse) && Number(data.virtualPurse) >= 0
+          ? Math.floor(Number(data.virtualPurse))
+          : 0;
+    }
+    if (data.virtualEntryFee !== undefined) {
+      updateData.virtualEntryFee =
+        Number.isFinite(data.virtualEntryFee) &&
+        Number(data.virtualEntryFee) >= 0
+          ? Math.floor(Number(data.virtualEntryFee))
+          : 0;
+    }
+    if (data.virtualPayoutSplit !== undefined) {
+      updateData.virtualPayoutSplit = normalizePayoutSplit(
+        data.virtualPayoutSplit,
+      ) as Prisma.JsonValue;
+    }
     if (data.stages !== undefined)
       updateData.stages = normalizeStages(data.stages) as Prisma.JsonValue;
     if (data.weather !== undefined)

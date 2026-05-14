@@ -1,12 +1,27 @@
 {
   "name": "iracehub",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "Open source iRacing league management platform with schedules, standings, results, widgets, and virtual money support.",
+  "license": "MIT",
+  "author": "Darrell Richards",
+  "homepage": "https://github.com/DarrellRichards/iracehub",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DarrellRichards/iracehub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DarrellRichards/iracehub/issues"
+  },
   "scripts": {
     "dev": "next dev --port 2300 --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --port 2300 --hostname 127.0.0.1",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts"
@@ -34,6 +49,7 @@
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.6"
   }
 }

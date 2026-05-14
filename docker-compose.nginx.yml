@@ -1,0 +1,22 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iracehub-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    expose:
+      - "2300"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: iracehub-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

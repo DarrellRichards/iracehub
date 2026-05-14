@@ -53,10 +53,22 @@ interface TeamInvitation {
 }
 
 function SessionTimer({ expiresAt }: { expiresAt: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   if (!expiresAt) return null;
-  const remaining = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+
+  const remaining = Math.max(0, Math.round((expiresAt - now) / 1000));
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
+
   return (
     <span className="text-xs text-zinc-400">
       Token expires in{" "}
@@ -230,6 +242,7 @@ export default function DashboardPage() {
   const [inviteActionLoading, setInviteActionLoading] = useState<string | null>(
     null,
   );
+  const [userCustId, setUserCustId] = useState<number | null>(null);
 
   async function fetchTeamInvitations() {
     try {
@@ -289,10 +302,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (session?.authenticated) {
-      fetchUserLeagues();
-      fetchTeamInvitations();
+      void (async () => {
+        await Promise.all([fetchUserLeagues(), fetchTeamInvitations()]);
+
+        try {
+          const res = await fetch("/api/auth/me", { cache: "no-store" });
+          const data = (await res.json()) as { custId?: number };
+          if (data.custId) {
+            setUserCustId(data.custId);
+          }
+        } catch {
+          // silently ignore
+        }
+      })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.authenticated]);
 
   if (loading) {
@@ -475,19 +498,29 @@ export default function DashboardPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 mt-auto">
-                    <Link
-                      href={`/app/${league.iracingLeagueId}`}
-                      className="flex-1 text-center rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
-                    >
-                      View League
-                    </Link>
-                    {(league.owner || league.admin) && (
+                  <div className="flex gap-2 mt-auto flex-col">
+                    <div className="flex gap-2">
                       <Link
-                        href={`/app/${league.iracingLeagueId}/admin`}
-                        className="flex-1 text-center rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
+                        href={`/app/${league.iracingLeagueId}`}
+                        className="flex-1 text-center rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
                       >
-                        Admin
+                        View League
+                      </Link>
+                      {(league.owner || league.admin) && (
+                        <Link
+                          href={`/app/${league.iracingLeagueId}/admin`}
+                          className="flex-1 text-center rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
+                        >
+                          Admin
+                        </Link>
+                      )}
+                    </div>
+                    {userCustId && (
+                      <Link
+                        href={`/app/drivers/${userCustId}?league=${league.id}`}
+                        className="w-full text-center rounded-lg border border-green-700/50 hover:border-green-600 bg-green-500/10 hover:bg-green-500/20 transition-colors px-3 py-1.5 text-xs font-semibold text-green-400"
+                      >
+                        💰 My Earnings
                       </Link>
                     )}
                   </div>

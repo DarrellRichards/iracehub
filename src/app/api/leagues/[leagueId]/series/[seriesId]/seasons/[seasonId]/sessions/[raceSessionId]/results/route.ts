@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
+import { recalculateLeagueVirtualMoney } from "@/lib/virtualMoneyDistribution";
+
+const PAYOUT_SLOTS = 60;
 
 interface UpsertResultRequest {
   custId: number;
@@ -36,6 +39,46 @@ function normalizeStageFinishes(
   return stageFinishes
     .map((finish) => Number(finish))
     .filter((finish) => Number.isInteger(finish) && finish > 0);
+}
+
+function normalizePayout(value: Prisma.JsonValue | null): number[] {
+  if (!Array.isArray(value)) {
+    return Array.from({ length: PAYOUT_SLOTS }, () => 0);
+  }
+
+  const normalized = value
+    .slice(0, PAYOUT_SLOTS)
+    .map((amount) =>
+      typeof amount === "number" && amount >= 0 ? Math.floor(amount) : 0,
+    );
+
+  while (normalized.length < PAYOUT_SLOTS) {
+    normalized.push(0);
+  }
+
+  return normalized;
+}
+
+function resolveRaceEarnings(
+  finishPosition: number | null,
+  args: {
+    virtualModeEnabled: boolean;
+    schedulePayoutSplit: Prisma.JsonValue | null;
+  },
+): number | null {
+  if (!args.virtualModeEnabled) {
+    return null;
+  }
+
+  const payout = normalizePayout(args.schedulePayoutSplit);
+  const basePayout =
+    finishPosition != null &&
+    finishPosition >= 1 &&
+    finishPosition <= PAYOUT_SLOTS
+      ? (payout[finishPosition - 1] ?? 0)
+      : 0;
+
+  return basePayout;
 }
 
 function resolveStageBonusPoints(
@@ -112,6 +155,7 @@ export async function GET(
       schedule: {
         select: {
           pointsCount: true,
+          virtualPayoutSplit: true,
         },
       },
       results: {
@@ -127,7 +171,27 @@ export async function GET(
     );
   }
 
-  return NextResponse.json(raceSession);
+  const leagueVirtualSettings = await prisma.league.findUnique({
+    where: { id: leagueId },
+    select: {
+      virtualModeEnabled: true,
+    },
+  });
+
+  const virtualSettings = leagueVirtualSettings ?? {
+    virtualModeEnabled: false,
+  };
+
+  return NextResponse.json({
+    ...raceSession,
+    results: raceSession.results.map((result) => ({
+      ...result,
+      virtualEarnings: resolveRaceEarnings(result.finishPosition, {
+        ...virtualSettings,
+        schedulePayoutSplit: raceSession.schedule?.virtualPayoutSplit ?? [],
+      }),
+    })),
+  });
 }
 
 export async function POST(
@@ -239,6 +303,8 @@ export async function POST(
       notes: data.notes,
     },
   });
+
+  await recalculateLeagueVirtualMoney(prisma, leagueId);
 
   return NextResponse.json(result);
 }

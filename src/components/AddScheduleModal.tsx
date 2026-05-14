@@ -2,6 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Track } from "@/lib/iracing/tracks";
+import {
+  formatMoney,
+  generateEvenSplit,
+  generateTopHeavySplit,
+  generateWinnerHeavySplit,
+  calculateSplitTotal,
+} from "@/lib/money";
 
 interface Weather {
   type: "Set" | "Realistic";
@@ -29,6 +36,9 @@ interface Schedule {
   trackName?: string;
   trackId?: number;
   raceLength?: string;
+  virtualPurse: number;
+  virtualEntryFee: number;
+  virtualPayoutSplit: number[];
   stages: ScheduleStage[];
   weather: Weather;
   raceOrder: number;
@@ -135,6 +145,9 @@ export function AddScheduleModal({
     trackName: "",
     trackId: undefined,
     raceLength: "",
+    virtualPurse: 0,
+    virtualEntryFee: 0,
+    virtualPayoutSplit: [],
     stages: [],
     weather: { type: "Set" },
     raceOrder: nextRaceOrder,
@@ -173,6 +186,11 @@ export function AddScheduleModal({
       loadedScheduleRef.current = existingSchedule.id;
       setFormData({
         ...existingSchedule,
+        virtualPurse: existingSchedule.virtualPurse ?? 0,
+        virtualEntryFee: existingSchedule.virtualEntryFee ?? 0,
+        virtualPayoutSplit: Array.isArray(existingSchedule.virtualPayoutSplit)
+          ? existingSchedule.virtualPayoutSplit
+          : [],
         stages: existingSchedule.stages ?? [],
       });
       setSearchQuery(existingSchedule.trackName || "");
@@ -189,6 +207,9 @@ export function AddScheduleModal({
         trackName: "",
         trackId: undefined,
         raceLength: "",
+        virtualPurse: 0,
+        virtualEntryFee: 0,
+        virtualPayoutSplit: [],
         stages: [],
         weather: { type: "Set" },
         raceOrder: nextRaceOrder,
@@ -257,6 +278,9 @@ export function AddScheduleModal({
         trackName: "",
         trackId: undefined,
         raceLength: "",
+        virtualPurse: 0,
+        virtualEntryFee: 0,
+        virtualPayoutSplit: [],
         stages: [],
         weather: { type: "Set" },
         raceOrder: nextRaceOrder,
@@ -580,6 +604,280 @@ export function AddScheduleModal({
                   }
                   className="w-full rounded-lg bg-zinc-800 border border-zinc-700 text-white px-4 py-2 text-sm focus:outline-none focus:border-red-500 placeholder-zinc-500"
                 />
+              </div>
+
+              {/* Virtual Purse + Payout Split */}
+              <div className="rounded-lg border border-zinc-800 p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Race Entry Fee
+                  </label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.virtualEntryFee}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          virtualEntryFee: Math.max(
+                            0,
+                            Number.parseInt(e.target.value, 10) || 0,
+                          ),
+                        })
+                      }
+                      className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 text-white px-4 py-2 text-sm focus:outline-none focus:border-red-500"
+                    />
+                    <span className="text-zinc-400 text-sm font-medium">
+                      {formData.virtualEntryFee > 0
+                        ? formatMoney(formData.virtualEntryFee)
+                        : "$0"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Charged to each driver when they register for this race.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Race Purse
+                  </label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.virtualPurse}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          virtualPurse: Math.max(
+                            0,
+                            Number.parseInt(e.target.value, 10) || 0,
+                          ),
+                        })
+                      }
+                      className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 text-white px-4 py-2 text-sm focus:outline-none focus:border-red-500"
+                    />
+                    <span className="text-zinc-400 text-sm font-medium">
+                      {formData.virtualPurse > 0
+                        ? formatMoney(formData.virtualPurse)
+                        : "$0"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Total purse to distribute among finishers.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-3">
+                    Distribution Pattern
+                  </label>
+
+                  {formData.virtualPurse > 0 ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const split = generateEvenSplit(
+                              formData.virtualPurse,
+                              20,
+                            );
+                            setFormData({
+                              ...formData,
+                              virtualPayoutSplit: split,
+                            });
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                        >
+                          Even Split
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const split = generateTopHeavySplit(
+                              formData.virtualPurse,
+                              20,
+                            );
+                            setFormData({
+                              ...formData,
+                              virtualPayoutSplit: split,
+                            });
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                        >
+                          Top Heavy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const split = generateWinnerHeavySplit(
+                              formData.virtualPurse,
+                              20,
+                            );
+                            setFormData({
+                              ...formData,
+                              virtualPayoutSplit: split,
+                            });
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                        >
+                          Winner Heavy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              virtualPayoutSplit: [],
+                            });
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+
+                      {formData.virtualPayoutSplit.length > 0 && (
+                        <>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs text-zinc-400">
+                                Split Preview (Top 10)
+                              </span>
+                              <span className="text-xs text-zinc-400">
+                                Total:{" "}
+                                {formatMoney(
+                                  calculateSplitTotal(
+                                    formData.virtualPayoutSplit,
+                                  ),
+                                )}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              {formData.virtualPayoutSplit
+                                .slice(0, 10)
+                                .map((amount, index) => (
+                                  <div
+                                    key={`payout-preview-${index}`}
+                                    className="flex items-center justify-between text-xs"
+                                  >
+                                    <span className="text-zinc-500 w-16">
+                                      P{index + 1}:
+                                    </span>
+                                    <div className="flex-1 bg-zinc-800 rounded mx-2 h-6 flex items-center px-2">
+                                      <div
+                                        className="bg-red-500 h-4 rounded"
+                                        style={{
+                                          width: `${(amount / Math.max(...formData.virtualPayoutSplit)) * 100}%`,
+                                        }}
+                                      />
+                                    </div>
+                                    <span className="text-zinc-300 w-16 text-right">
+                                      {formatMoney(amount)}
+                                    </span>
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData({
+                                  ...formData,
+                                  virtualPayoutSplit: [
+                                    ...formData.virtualPayoutSplit,
+                                    0,
+                                  ],
+                                });
+                              }}
+                              className="w-full rounded-lg border border-zinc-700 hover:border-zinc-600 px-3 py-2 text-xs text-zinc-300 transition-colors font-medium"
+                            >
+                              + Add Extra Position
+                            </button>
+                          </div>
+
+                          {formData.virtualPayoutSplit.length > 10 && (
+                            <div className="bg-zinc-950 rounded-lg p-3">
+                              <details>
+                                <summary className="text-xs text-zinc-400 cursor-pointer">
+                                  Full Split (
+                                  {formData.virtualPayoutSplit.length}{" "}
+                                  positions)
+                                </summary>
+                                <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                                  {formData.virtualPayoutSplit.map(
+                                    (amount, index) => (
+                                      <div
+                                        key={`payout-full-${index}`}
+                                        className="flex items-center justify-between text-xs"
+                                      >
+                                        <span className="text-zinc-500">
+                                          P{index + 1}:
+                                        </span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={amount}
+                                          onChange={(e) => {
+                                            const next = [
+                                              ...formData.virtualPayoutSplit,
+                                            ];
+                                            next[index] = Math.max(
+                                              0,
+                                              Number.parseInt(
+                                                e.target.value,
+                                                10,
+                                              ) || 0,
+                                            );
+                                            setFormData({
+                                              ...formData,
+                                              virtualPayoutSplit: next,
+                                            });
+                                          }}
+                                          className="w-20 rounded bg-zinc-900 border border-zinc-700 text-zinc-200 px-2 py-1 text-xs focus:outline-none focus:border-red-500"
+                                        />
+                                        <span className="text-zinc-400 w-14 text-right">
+                                          {formatMoney(amount)}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const next =
+                                              formData.virtualPayoutSplit.filter(
+                                                (_, payoutIndex) =>
+                                                  payoutIndex !== index,
+                                              );
+                                            setFormData({
+                                              ...formData,
+                                              virtualPayoutSplit: next,
+                                            });
+                                          }}
+                                          className="text-xs text-zinc-500 hover:text-red-400 w-8 text-right"
+                                        >
+                                          rm
+                                        </button>
+                                      </div>
+                                    ),
+                                  )}
+                                </div>
+                              </details>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500 text-center py-4">
+                      Enter a race purse above to configure earnings
+                      distribution.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Stage Configuration */}
