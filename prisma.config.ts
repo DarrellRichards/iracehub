@@ -1,9 +1,17 @@
-import { config as loadDotenv } from "dotenv";
-import { defineConfig } from "prisma/config";
+import { createRequire } from "node:module";
 
-loadDotenv({ path: ".env.local" });
+const require = createRequire(import.meta.url);
 
-export default defineConfig({
+try {
+  const { config: loadDotenv } = require("dotenv") as {
+    config: (options?: { path?: string }) => void;
+  };
+  loadDotenv({ path: ".env.local" });
+} catch {
+  // noop in minimal runtime containers where dotenv is not installed
+}
+
+const prismaConfig = {
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
@@ -11,4 +19,6 @@ export default defineConfig({
   datasource: {
     url: process.env.DATABASE_URL ?? "",
   },
-});
+};
+
+export default prismaConfig;

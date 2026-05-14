@@ -279,10 +279,14 @@ Use Caddy when:
 Run migrations against your production DB after deployment:
 
 ```bash
-docker compose -f docker-compose.nginx.yml exec app npx prisma migrate deploy
+docker compose -f docker-compose.nginx.yml exec app prisma migrate deploy --schema prisma/schema.prisma
 ```
 
-If using Caddy stack, replace compose file name with `docker-compose.caddy.yml`.
+If using Caddy stack, run:
+
+```bash
+docker compose -f docker-compose.caddy.yml exec app prisma migrate deploy --schema prisma/schema.prisma
+```
 
 ### 5) Useful operations
 
@@ -311,7 +315,7 @@ Pull the latest code and rebuild:
 ```bash
 git pull
 docker compose -f docker-compose.nginx.yml up -d --build
-docker compose -f docker-compose.nginx.yml exec app npx prisma migrate deploy
+docker compose -f docker-compose.nginx.yml exec app prisma migrate deploy --schema prisma/schema.prisma
 ```
 
 ### 7) Suggested production checklist
