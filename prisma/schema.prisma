@@ -1,0 +1,400 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+}
+
+model User {
+    id            String    @id @default(cuid())
+    iracingCustId Int       @unique @map("iracing_cust_id")
+    displayName   String?   @map("display_name")
+    country       String?
+    memberSince   DateTime? @map("member_since")
+    lastLoginAt   DateTime  @default(now()) @map("last_login_at")
+    createdAt     DateTime  @default(now()) @map("created_at")
+    updatedAt     DateTime  @updatedAt @map("updated_at")
+
+    leagueMemberships LeagueMembership[]
+    permissions       UserPermission[]
+    createdLeagues    League[]           @relation("LeagueCreator")
+
+    @@map("users")
+}
+
+model League {
+    id               String    @id @default(cuid())
+    iracingLeagueId  Int       @unique @map("iracing_league_id")
+    leagueName       String    @map("league_name")
+    ownerCustId      Int?      @map("owner_cust_id")
+    createdAtIracing DateTime? @map("created_at_iracing")
+    hidden           Boolean?
+    message          String?
+    about            String?
+    url              String?
+    recruiting       Boolean?
+    rules            String?
+    privateWall      Boolean?  @map("private_wall")
+    privateRoster    Boolean?  @map("private_roster")
+    privateSchedule  Boolean?  @map("private_schedule")
+    privateResults   Boolean?  @map("private_results")
+    rosterCount      Int?      @map("roster_count")
+    smallLogo        String?   @map("small_logo")
+    largeLogo        String?   @map("large_logo")
+    rawLeague        Json?     @map("raw_league")
+    creatorUserId    String?   @map("creator_user_id")
+    createdAt        DateTime  @default(now()) @map("created_at")
+    updatedAt        DateTime  @updatedAt @map("updated_at")
+
+    creator       User?                @relation("LeagueCreator", fields: [creatorUserId], references: [id], onDelete: SetNull)
+    memberships   LeagueMembership[]
+    permissions   UserPermission[]
+    series        Series[]
+    pointsSystems SeriesPointsSystem[]
+    members       Member[]             @relation("LeagueMembers")
+    teams         Team[]
+    raceSessions  RaceSession[]
+
+    @@map("leagues")
+}
+
+model LeagueMembership {
+    id               String   @id @default(cuid())
+    userId           String   @map("user_id")
+    leagueId         String   @map("league_id")
+    owner            Boolean  @default(false)
+    admin            Boolean  @default(false)
+    leagueMailOptOut Boolean? @map("league_mail_opt_out")
+    leaguePmOptOut   Boolean? @map("league_pm_opt_out")
+    carNumber        String?  @map("car_number")
+    nickName         String?  @map("nick_name")
+    isMember         Boolean? @map("is_member")
+    isApplicant      Boolean? @map("is_applicant")
+    isInvite         Boolean? @map("is_invite")
+    isIgnored        Boolean? @map("is_ignored")
+    lastSyncedAt     DateTime @default(now()) @map("last_synced_at")
+    createdAt        DateTime @default(now()) @map("created_at")
+    updatedAt        DateTime @updatedAt @map("updated_at")
+
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+    league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, leagueId])
+    @@map("league_memberships")
+}
+
+model UserPermission {
+    id             String         @id @default(cuid())
+    userId         String         @map("user_id")
+    permission     PermissionType
+    sourceLeagueId String?        @map("source_league_id")
+    granted        Boolean        @default(true)
+    createdAt      DateTime       @default(now()) @map("created_at")
+    updatedAt      DateTime       @updatedAt @map("updated_at")
+
+    user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    sourceLeague League? @relation(fields: [sourceLeagueId], references: [id], onDelete: SetNull)
+
+    @@unique([userId, permission])
+    @@map("user_permissions")
+}
+
+enum PermissionType {
+    ADMIN_ROUTES
+}
+
+model SeriesPointsSystem {
+    id             String   @id @default(cuid())
+    leagueId       String?  @map("league_id")
+    name           String
+    description    String?
+    // Position-based points: { "1": 40, "2": 34, "3": 32, ... "40": 0 }
+    positionPoints Json     @default("{}") @map("position_points")
+    // Bonus points: { "pole": 1, "raceWinner": 5, "ledMostLaps": 2, ... }
+    bonusPoints    Json     @default("{}") @map("bonus_points")
+    isDefault      Boolean  @default(false)
+    isPreset       Boolean  @default(false) @map("is_preset")
+    presetType     String?  @map("preset_type") // "nascar", "f1", "indycar", etc.
+    createdAt      DateTime @default(now()) @map("created_at")
+    updatedAt      DateTime @updatedAt @map("updated_at")
+
+    league League?  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    series Series[]
+
+    @@unique([leagueId, name])
+    @@map("series_points_systems")
+}
+
+model Series {
+    id             String   @id @default(cuid())
+    leagueId       String   @map("league_id")
+    pointsSystemId String   @map("points_system_id")
+    name           String
+    description    String?
+    cars           String[]
+    isActive       Boolean  @default(true)
+    createdAt      DateTime @default(now()) @map("created_at")
+    updatedAt      DateTime @updatedAt @map("updated_at")
+
+    league       League             @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    pointsSystem SeriesPointsSystem @relation(fields: [pointsSystemId], references: [id], onDelete: Restrict)
+    seasons      Season[]
+    schedules    Schedule[]
+    raceSessions RaceSession[]
+
+    @@unique([leagueId, name])
+    @@map("series")
+}
+
+model Season {
+    id                      String    @id @default(cuid())
+    seriesId                String    @map("series_id")
+    iracingSeasonId         Int?      @map("iracing_season_id")
+    seasonName              String    @map("season_name")
+    description             String?
+    // Cars array: [{ "car_id": 139, "car_name": "..." }, ...]
+    cars                    Json      @default("[]")
+    isActive                Boolean   @default(true)
+    hidden                  Boolean   @default(false)
+    numDrops                Int       @default(0) @map("num_drops")
+    noDropsOnOrAfterRaceNum Int       @default(-1) @map("no_drops_on_or_after_race_num")
+    // iRacing points system info
+    iracingPointsSystemId   Int?      @map("iracing_points_system_id")
+    iracingPointsSystemName String?   @map("iracing_points_system_name")
+    iracingPointsSystemDesc String?   @map("iracing_points_system_desc")
+    // Sync tracking
+    isSynced                Boolean   @default(false) @map("is_synced")
+    lastSyncedAt            DateTime? @map("last_synced_at")
+    createdAt               DateTime  @default(now()) @map("created_at")
+    updatedAt               DateTime  @updatedAt @map("updated_at")
+
+    series       Series        @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+    schedules    Schedule[]
+    raceSessions RaceSession[]
+
+    @@unique([seriesId, iracingSeasonId])
+    @@map("seasons")
+}
+
+model Schedule {
+    id                  String   @id @default(cuid())
+    seasonId            String   @map("season_id")
+    seriesId            String   @map("series_id")
+    eventDate           DateTime @map("event_date")
+    raceName            String   @map("race_name")
+    isOffWeek           Boolean  @default(false) @map("is_off_week")
+    pointsCount         Boolean  @default(true) @map("points_count")
+    canDrop             Boolean  @default(false) @map("can_drop")
+    trackName           String?  @map("track_name")
+    trackId             Int?     @map("track_id")
+    raceLength          String?  @map("race_length") // e.g. "50 laps" or "1:30:00"
+    // Stage configuration: [{ "stageNumber": 1, "endLap": 25 }, ...]
+    stages              Json     @default("[]")
+    // Weather data: { type: "Set"|"Realistic", skies?, temp?, humidity?, fog?, windDirection?, windSpeed? }
+    weather             Json     @default("{}")
+    raceOrder           Int      @default(0) @map("race_order") // Order within the season
+    registrationEnabled Boolean  @default(true) @map("registration_enabled")
+    iracingSessionId    Int?     @unique @map("iracing_session_id")
+    createdAt           DateTime @default(now()) @map("created_at")
+    updatedAt           DateTime @updatedAt @map("updated_at")
+
+    season          Season              @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+    series          Series              @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+    importedSession RaceSession?
+    registrations   EventRegistration[]
+
+    @@unique([seasonId, raceOrder])
+    @@map("schedules")
+}
+
+model Member {
+    id                String   @id @default(cuid())
+    leagueId          String   @map("league_id")
+    custId            Int      @map("cust_id")
+    displayName       String   @map("display_name")
+    owner             Boolean  @default(false)
+    admin             Boolean  @default(false)
+    leagueMailOptOut  Boolean? @map("league_mail_opt_out")
+    leaguePmOptOut    Boolean? @map("league_pm_opt_out")
+    leagueMemberSince DateTime @map("league_member_since")
+    carNumber         String?  @map("car_number")
+    nickName          String?  @map("nick_name")
+    // Helmet data: { pattern, color1, color2, color3, face_type, helmet_type }
+    helmet            Json     @default("{}")
+    lastSyncedAt      DateTime @default(now()) @map("last_synced_at")
+    createdAt         DateTime @default(now()) @map("created_at")
+    updatedAt         DateTime @updatedAt @map("updated_at")
+
+    league              League              @relation("LeagueMembers", fields: [leagueId], references: [id], onDelete: Cascade)
+    raceResults         RaceSessionResult[]
+    registrations       EventRegistration[]
+    teamMembership      TeamMember?
+    captainedTeams      Team[]              @relation("TeamCaptain")
+    sentTeamInvites     TeamInvite[]        @relation("TeamInviteSender")
+    receivedTeamInvites TeamInvite[]        @relation("TeamInviteRecipient")
+
+    @@unique([leagueId, custId])
+    @@map("members")
+}
+
+model EventRegistration {
+    id         String   @id @default(cuid())
+    scheduleId String   @map("schedule_id")
+    memberId   String   @map("member_id")
+    createdAt  DateTime @default(now()) @map("created_at")
+    updatedAt  DateTime @updatedAt @map("updated_at")
+
+    schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+    member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+    @@unique([scheduleId, memberId])
+    @@index([memberId])
+    @@map("event_registrations")
+}
+
+enum TeamRole {
+    CAPTAIN
+    DRIVER
+}
+
+enum TeamInviteStatus {
+    PENDING
+    ACCEPTED
+    DECLINED
+    CANCELED
+}
+
+model Team {
+    id              String   @id @default(cuid())
+    leagueId        String   @map("league_id")
+    name            String
+    captainMemberId String   @map("captain_member_id")
+    createdAt       DateTime @default(now()) @map("created_at")
+    updatedAt       DateTime @updatedAt @map("updated_at")
+
+    league      League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    captain     Member       @relation("TeamCaptain", fields: [captainMemberId], references: [id], onDelete: Cascade)
+    members     TeamMember[]
+    invitations TeamInvite[]
+
+    @@unique([leagueId, name])
+    @@index([captainMemberId])
+    @@map("teams")
+}
+
+model TeamMember {
+    id        String   @id @default(cuid())
+    teamId    String   @map("team_id")
+    memberId  String   @unique @map("member_id")
+    role      TeamRole @default(DRIVER)
+    joinedAt  DateTime @default(now()) @map("joined_at")
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+    member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+    @@unique([teamId, memberId])
+    @@index([teamId])
+    @@map("team_members")
+}
+
+model TeamInvite {
+    id                String           @id @default(cuid())
+    teamId            String           @map("team_id")
+    invitedMemberId   String           @map("invited_member_id")
+    invitedByMemberId String           @map("invited_by_member_id")
+    status            TeamInviteStatus @default(PENDING)
+    createdAt         DateTime         @default(now()) @map("created_at")
+    updatedAt         DateTime         @updatedAt @map("updated_at")
+    respondedAt       DateTime?        @map("responded_at")
+
+    team            Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+    invitedMember   Member @relation("TeamInviteRecipient", fields: [invitedMemberId], references: [id], onDelete: Cascade)
+    invitedByMember Member @relation("TeamInviteSender", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
+
+    @@unique([teamId, invitedMemberId])
+    @@index([invitedMemberId, status])
+    @@map("team_invites")
+}
+
+model RaceSession {
+    id               String   @id @default(cuid())
+    leagueId         String   @map("league_id")
+    seriesId         String   @map("series_id")
+    seasonId         String   @map("season_id")
+    scheduleId       String?  @unique @map("schedule_id")
+    iracingSessionId Int?     @unique @map("iracing_session_id")
+    subsessionId     Int?     @map("subsession_id")
+    privateSessionId Int?     @map("private_session_id")
+    leagueSeasonId   Int?     @map("league_season_id")
+    launchAt         DateTime @map("launch_at")
+    hasResults       Boolean  @default(false) @map("has_results")
+    status           Int?
+    trackId          Int?     @map("track_id")
+    trackName        String?  @map("track_name")
+    raceLaps         Int?     @map("race_laps")
+    raceLength       Int?     @map("race_length")
+    timeLimit        Int?     @map("time_limit")
+    winnerCustId     Int?     @map("winner_cust_id")
+    winnerName       String?  @map("winner_name")
+    rawSession       Json     @map("raw_session")
+    rawTrackState    Json?    @map("raw_track_state")
+    rawWeather       Json?    @map("raw_weather")
+    createdAt        DateTime @default(now()) @map("created_at")
+    updatedAt        DateTime @updatedAt @map("updated_at")
+
+    league       League              @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+    series       Series              @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+    season       Season              @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+    schedule     Schedule?           @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+    pointsConfig RaceSessionPoints?
+    results      RaceSessionResult[]
+
+    @@index([leagueId, seriesId, seasonId])
+    @@map("race_sessions")
+}
+
+model RaceSessionPoints {
+    id                String   @id @default(cuid())
+    raceSessionId     String   @unique @map("race_session_id")
+    positionPoints    Json     @default("{}") @map("position_points")
+    bonusPoints       Json     @default("{}") @map("bonus_points")
+    allowProvisionals Boolean  @default(true) @map("allow_provisionals")
+    createdAt         DateTime @default(now()) @map("created_at")
+    updatedAt         DateTime @updatedAt @map("updated_at")
+
+    raceSession RaceSession @relation(fields: [raceSessionId], references: [id], onDelete: Cascade)
+
+    @@map("race_session_points")
+}
+
+model RaceSessionResult {
+    id               String   @id @default(cuid())
+    raceSessionId    String   @map("race_session_id")
+    memberId         String?  @map("member_id")
+    custId           Int      @map("cust_id")
+    displayName      String   @map("display_name")
+    finishPosition   Int?     @map("finish_position")
+    startPosition    Int?     @map("start_position")
+    lapsCompleted    Int?     @map("laps_completed")
+    incidents        Int?     @map("incidents")
+    provisional      Boolean  @default(false)
+    pointsBase       Float    @default(0) @map("points_base")
+    // Stage finish positions in order, matching schedule stages: [5, 1, ...]
+    stageFinishes    Json     @default("[]") @map("stage_finishes")
+    pointsAdjustment Float    @default(0) @map("points_adjustment")
+    finalPoints      Float    @default(0) @map("final_points")
+    notes            String?
+    rawResult        Json?    @map("raw_result")
+    createdAt        DateTime @default(now()) @map("created_at")
+    updatedAt        DateTime @updatedAt @map("updated_at")
+
+    raceSession RaceSession @relation(fields: [raceSessionId], references: [id], onDelete: Cascade)
+    member      Member?     @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+    @@unique([raceSessionId, custId])
+    @@index([memberId])
+    @@map("race_session_results")
+}

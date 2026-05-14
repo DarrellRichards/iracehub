@@ -1,0 +1,54 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start Dev Server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "iRaceHub Dev Server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "iRaceHub Dev Server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Install Prisma CLI",
+			"type": "shell",
+			"command": "npm_config_progress=false npm install -D prisma --no-audit --no-fund",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Prisma Generate",
+			"type": "shell",
+			"command": "npm run prisma:generate",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Prisma Generate",
+			"type": "shell",
+			"command": "npm run prisma:generate",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Prisma Generate",
+			"type": "shell",
+			"command": "npm run prisma:generate",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
