@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateSplitTotal,
+  displayMoney,
   distributeMoney,
+  formatCurrency,
   formatMoney,
   generateEvenSplit,
+  generateFlatTopSplit,
   generateTopHeavySplit,
   generateWinnerHeavySplit,
 } from "@/lib/money";
@@ -11,6 +14,7 @@ import {
 describe("money utilities", () => {
   it("formats whole-dollar values for display", () => {
     expect(formatMoney(1250)).toBe("$1,250");
+    expect(displayMoney(5000)).toBe("$50");
   });
 
   it("creates even payout splits that add up to the purse", () => {
@@ -26,6 +30,10 @@ describe("money utilities", () => {
     expect(split[0]).toBe(400);
     expect(split).toHaveLength(5);
     expect(calculateSplitTotal(split)).toBe(1000);
+  });
+
+  it("handles winner-heavy single position payout", () => {
+    expect(generateWinnerHeavySplit(1000, 1)).toEqual([1000]);
   });
 
   it("prioritizes top finishers in top-heavy splits", () => {
@@ -50,5 +58,26 @@ describe("money utilities", () => {
       driver: 33,
       team: 33,
     });
+  });
+
+  it("never over-distributes when split percentages exceed 100%", () => {
+    const distribution = distributeMoney(5, [
+      { recipient: "captain", percent: 50 },
+      { recipient: "driver", percent: 50 },
+      { recipient: "team", percent: 50 },
+    ]);
+
+    expect(Object.values(distribution).reduce((sum, amount) => sum + amount, 0)).toBe(
+      5,
+    );
+  });
+
+  it("formats compact negative money with conventional currency sign order", () => {
+    expect(formatCurrency(-150000, { compact: true })).toBe("-$1.5K");
+  });
+
+  it("generates a flat split across all positions", () => {
+    const split = generateFlatTopSplit(100, 4);
+    expect(split).toEqual([25, 25, 25, 25]);
   });
 });

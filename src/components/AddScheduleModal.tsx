@@ -771,7 +771,7 @@ export function AddScheduleModal({
                                       <div
                                         className="bg-red-500 h-4 rounded"
                                         style={{
-                                          width: `${(amount / Math.max(...formData.virtualPayoutSplit)) * 100}%`,
+                                          width: `${(amount / Math.max(1, ...formData.virtualPayoutSplit)) * 100}%`,
                                         }}
                                       />
                                     </div>

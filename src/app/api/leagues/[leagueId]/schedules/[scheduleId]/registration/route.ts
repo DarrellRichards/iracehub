@@ -158,8 +158,17 @@ function getRegistrationLockReason(args: {
   const lockTime = new Date(
     new Date(args.eventDate).getTime() - REGISTRATION_LOCK_WINDOW_MS,
   );
+  const eventStartTime = new Date(args.eventDate).getTime();
+  const now = Date.now();
 
-  if (Date.now() >= lockTime.getTime()) {
+  if (now >= eventStartTime) {
+    return {
+      error: "event_passed",
+      message: "Registration is closed because this event has started.",
+    };
+  }
+
+  if (now >= lockTime.getTime()) {
     return {
       error: "registration_closed_starting_soon",
       message: "Registration closes 20 minutes before the event start time.",

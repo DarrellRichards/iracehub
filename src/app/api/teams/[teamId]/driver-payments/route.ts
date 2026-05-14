@@ -213,7 +213,7 @@ export async function POST(
 }
 
 /**
- * DELETE /api/teams/[teamId]/driver-payments/[memberId]
+ * DELETE /api/teams/[teamId]/driver-payments?memberId=...
  * Delete a driver payment split configuration
  */
 export async function DELETE(

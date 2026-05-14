@@ -19,13 +19,14 @@ export function formatCurrency(
 
   const dollars = cents / 100;
   const absValue = Math.abs(dollars);
+  const signPrefix = dollars < 0 ? "-$" : "$";
 
   // Compact format for large numbers
   if (compact && absValue >= 1_000_000) {
-    return `$${(dollars / 1_000_000).toFixed(1)}M`;
+    return `${signPrefix}${(absValue / 1_000_000).toFixed(1)}M`;
   }
   if (compact && absValue >= 1_000) {
-    return `$${(dollars / 1_000).toFixed(1)}K`;
+    return `${signPrefix}${(absValue / 1_000).toFixed(1)}K`;
   }
 
   // Standard format
@@ -78,17 +79,37 @@ export function distributeMoney(
   const result: Record<string, number> = {};
   let totalDistributed = 0;
 
-  // Calculate each split
+  // Calculate each split using floor to avoid over-allocation from rounding
   for (const split of splits) {
-    const distribution = calculatePercentage(amount, split.percent);
+    const distribution = Math.floor((amount * split.percent) / 100);
     result[split.recipient] = distribution;
     totalDistributed += distribution;
   }
 
-  // Handle rounding issues by giving remainder to the first recipient
-  if (totalDistributed < amount && splits.length > 0) {
-    const remainder = amount - totalDistributed;
-    result[splits[0].recipient] += remainder;
+  // Handle rounding/correction by applying the delta deterministically
+  let delta = amount - totalDistributed;
+  let index = 0;
+
+  while (delta !== 0 && splits.length > 0) {
+    const recipient = splits[index % splits.length].recipient;
+    const current = result[recipient] ?? 0;
+    let adjusted = false;
+
+    if (delta > 0) {
+      result[recipient] = current + 1;
+      delta -= 1;
+      adjusted = true;
+    } else if (current > 0) {
+      result[recipient] = current - 1;
+      delta += 1;
+      adjusted = true;
+    }
+
+    if (!adjusted && index >= splits.length - 1 && delta < 0) {
+      break;
+    }
+
+    index += 1;
   }
 
   return result;
@@ -100,7 +121,7 @@ export function distributeMoney(
  * @returns Formatted string like "$50"
  */
 export function displayMoney(cents: number): string {
-  return formatCurrency(cents, { compact: false });
+  return formatCurrency(cents, { compact: false, showCents: false });
 }
 
 /**
@@ -115,7 +136,7 @@ export function displayMoneyCompact(cents: number): string {
 /**
  * Format money given in dollars (not cents)
  * @param dollars - Amount in dollars
- * @returns Formatted string like "$50.00"
+ * @returns Formatted string like "$50"
  */
 export function formatMoney(dollars: number): string {
   return dollars.toLocaleString("en-US", {
@@ -225,6 +246,7 @@ export function generateWinnerHeavySplit(
   numPositions: number = 20,
 ): number[] {
   if (purse <= 0 || numPositions <= 0) return [];
+  if (numPositions === 1) return [purse];
 
   const winnerAmount = Math.floor(purse * 0.4);
   const restAmount = purse - winnerAmount;
@@ -241,7 +263,7 @@ export function generateWinnerHeavySplit(
 }
 
 /**
- * Generates flat split for top positions only
+ * Generates flat split across all positions
  * @param purse - Total purse in dollars
  * @param numPositions - Number of finishing positions
  * @returns Array of payouts for each position

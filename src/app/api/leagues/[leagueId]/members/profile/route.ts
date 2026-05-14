@@ -2,28 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 import { prisma } from "@/lib/prisma";
 
-const PAYOUT_SLOTS = 60;
-
-const normalizePayout = (value: unknown): number[] => {
-  if (!Array.isArray(value)) {
-    return Array.from({ length: PAYOUT_SLOTS }, () => 0);
-  }
-
-  const normalized = value
-    .slice(0, PAYOUT_SLOTS)
-    .map((amount) =>
-      Number.isFinite(amount) && Number(amount) >= 0
-        ? Math.floor(Number(amount))
-        : 0,
-    );
-
-  while (normalized.length < PAYOUT_SLOTS) {
-    normalized.push(0);
-  }
-
-  return normalized;
-};
-
 async function getLeagueMemberContext(request: NextRequest, leagueId: string) {
   const accessToken = request.cookies.get("irh_access_token")?.value;
   if (!accessToken) {
@@ -61,50 +39,6 @@ async function getLeagueMemberContext(request: NextRequest, leagueId: string) {
   }
 
   return { user };
-}
-
-function calculateVirtualMoneyEarned(args: {
-  raceResults: Array<{
-    finishPosition: number | null;
-    payoutSplit: unknown;
-    entryFee: number;
-  }>;
-  totalLedgerAmount: number;
-  virtualModeEnabled: boolean;
-}) {
-  if (!args.virtualModeEnabled) {
-    return {
-      raceCount: args.raceResults.length,
-      totalPayout: 0,
-      totalEntryCost: 0,
-      net: 0,
-    };
-  }
-
-  let totalPayout = 0;
-  let totalEntryCost = 0;
-
-  for (const raceResult of args.raceResults) {
-    const finishPosition = raceResult.finishPosition;
-    const payout = normalizePayout(raceResult.payoutSplit);
-
-    totalEntryCost += Math.max(0, raceResult.entryFee ?? 0);
-
-    if (
-      finishPosition != null &&
-      finishPosition >= 1 &&
-      finishPosition <= PAYOUT_SLOTS
-    ) {
-      totalPayout += payout[finishPosition - 1] ?? 0;
-    }
-  }
-
-  return {
-    raceCount: args.raceResults.length,
-    totalPayout,
-    totalEntryCost,
-    net: totalPayout + args.totalLedgerAmount,
-  };
 }
 
 export async function GET(
@@ -152,6 +86,7 @@ export async function GET(
           profileBio: true,
           carNumber: true,
           nickName: true,
+          earnedVirtual: true,
         },
       }),
       prisma.member.findUnique({
@@ -180,36 +115,24 @@ export async function GET(
       );
     }
 
-    const raceResults = await prisma.raceSessionResult.findMany({
-      where: {
-        raceSession: { leagueId },
-        memberId: targetMember.id,
-      },
-      select: {
-        finishPosition: true,
-        raceSession: {
-          select: {
-            schedule: {
-              select: {
-                virtualPayoutSplit: true,
-                virtualEntryFee: true,
-              },
-            },
-          },
+    const [raceCount, moneyEvents] = await Promise.all([
+      prisma.raceSessionResult.count({
+        where: {
+          raceSession: { leagueId },
+          memberId: targetMember.id,
         },
-      },
-    });
-
-    const moneyEvents = await prisma.virtualMoneyEvent.findMany({
-      where: {
-        leagueId,
-        memberId: targetMember.id,
-      },
-      select: {
-        amount: true,
-        eventType: true,
-      },
-    });
+      }),
+      prisma.virtualMoneyEvent.findMany({
+        where: {
+          leagueId,
+          memberId: targetMember.id,
+        },
+        select: {
+          amount: true,
+          eventType: true,
+        },
+      }),
+    ]);
 
     let totalLedgerAmount = 0;
     let totalEntryDebits = 0;
@@ -227,20 +150,12 @@ export async function GET(
       }
     }
 
-    const earnings = calculateVirtualMoneyEarned({
-      raceResults: raceResults.map((result) => ({
-        finishPosition: result.finishPosition,
-        payoutSplit: result.raceSession.schedule?.virtualPayoutSplit ?? [],
-        entryFee: result.raceSession.schedule?.virtualEntryFee ?? 0,
-      })),
-      totalLedgerAmount,
-      virtualModeEnabled: leagueSettings.virtualModeEnabled,
-    });
-
+    const totalPayout = leagueSettings.virtualModeEnabled
+      ? targetMember.earnedVirtual
+      : 0;
+    const netEarned = totalPayout + totalLedgerAmount;
     const currentBalance =
-      leagueSettings.virtualStartingMoney +
-      earnings.totalPayout +
-      totalLedgerAmount;
+      leagueSettings.virtualStartingMoney + totalPayout + totalLedgerAmount;
 
     return NextResponse.json({
       league: {
@@ -257,10 +172,10 @@ export async function GET(
         profileBio: targetMember.profileBio,
       },
       virtualMoney: {
-        raceCount: earnings.raceCount,
-        totalPayout: earnings.totalPayout,
+        raceCount,
+        totalPayout,
         totalEntryCost: Math.max(0, totalEntryDebits - totalEntryRefunds),
-        netEarned: earnings.net,
+        netEarned,
         startingBalance: leagueSettings.virtualStartingMoney,
         currentBalance,
       },

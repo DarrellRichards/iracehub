@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 
 /**
  * GET /api/teams/[teamId]
@@ -11,6 +12,21 @@ export async function GET(
 ) {
   try {
     const { teamId } = await context.params;
+    const accessToken = request.cookies.get("irh_access_token")?.value;
+
+    if (!accessToken) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const iracingCustId = getIracingCustIdFromJwt(accessToken);
+    const user = await prisma.user.findUnique({
+      where: { iracingCustId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "user_not_found" }, { status: 404 });
+    }
 
     const team = await prisma.team.findUnique({
       where: { id: teamId },
@@ -44,6 +60,20 @@ export async function GET(
 
     if (!team) {
       return NextResponse.json({ error: "team_not_found" }, { status: 404 });
+    }
+
+    const membership = await prisma.leagueMembership.findUnique({
+      where: {
+        userId_leagueId: {
+          userId: user.id,
+          leagueId: team.leagueId,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!membership) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     return NextResponse.json({

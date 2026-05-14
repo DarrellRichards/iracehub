@@ -9,37 +9,9 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "iRaceHub Dev Server",
-			"type": "shell",
-			"command": "npm run dev",
-			"isBackground": true,
-			"problemMatcher": []
-		},
-		{
-			"label": "iRaceHub Dev Server",
-			"type": "shell",
-			"command": "npm run dev",
-			"isBackground": true,
-			"problemMatcher": []
-		},
-		{
 			"label": "Install Prisma CLI",
 			"type": "shell",
 			"command": "npm_config_progress=false npm install -D prisma --no-audit --no-fund",
-			"isBackground": false,
-			"problemMatcher": []
-		},
-		{
-			"label": "Prisma Generate",
-			"type": "shell",
-			"command": "npm run prisma:generate",
-			"isBackground": false,
-			"problemMatcher": []
-		},
-		{
-			"label": "Prisma Generate",
-			"type": "shell",
-			"command": "npm run prisma:generate",
 			"isBackground": false,
 			"problemMatcher": []
 		},
@@ -55,24 +27,6 @@
 			"type": "shell",
 			"command": "npm run ci",
 			"args": [],
-			"isBackground": false
-		},
-		{
-			"label": "CI Validate",
-			"type": "shell",
-			"command": "DATABASE_URL='postgresql://postgres:postgres@localhost:5432/iracehub' NEXT_PUBLIC_APP_URL='http://127.0.0.1:2300' IRACING_CLIENT_ID='104003-vhub' IRACING_CLIENT_SECRET='local-test-secret' npm run ci",
-			"isBackground": false
-		},
-		{
-			"label": "CI Validate",
-			"type": "shell",
-			"command": "DATABASE_URL='postgresql://postgres:postgres@localhost:5432/iracehub' NEXT_PUBLIC_APP_URL='http://127.0.0.1:2300' IRACING_CLIENT_ID='104003-vhub' IRACING_CLIENT_SECRET='local-test-secret' npm run ci",
-			"isBackground": false
-		},
-		{
-			"label": "CI Validate 2",
-			"type": "shell",
-			"command": "DATABASE_URL='postgresql://postgres:postgres@localhost:5432/iracehub' NEXT_PUBLIC_APP_URL='http://127.0.0.1:2300' IRACING_CLIENT_ID='104003-vhub' IRACING_CLIENT_SECRET='local-test-secret' npm run ci",
 			"isBackground": false
 		},
 		{
