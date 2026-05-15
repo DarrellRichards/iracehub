@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 
 interface StandingEntry {
   custId: number;
@@ -92,15 +91,10 @@ function buildStandings(
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: Request,
   { params }: { params: Promise<{ leagueId: string }> },
 ) {
   const { leagueId: rawLeagueId } = await params;
-
-  const accessToken = request.cookies.get("irh_access_token")?.value;
-  if (!accessToken) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
 
   const iracingLeagueIdNum = parseInt(rawLeagueId, 10);
   const league = isNaN(iracingLeagueIdNum)
@@ -115,23 +109,6 @@ export async function GET(
 
   if (!league) {
     return NextResponse.json({ error: "league_not_found" }, { status: 404 });
-  }
-
-  const iracingCustId = getIracingCustIdFromJwt(accessToken);
-  const user = await prisma.user.findUnique({
-    where: { iracingCustId },
-    select: { id: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "user_not_found" }, { status: 404 });
-  }
-
-  const membership = await prisma.leagueMembership.findUnique({
-    where: { userId_leagueId: { userId: user.id, leagueId: league.id } },
-    select: { id: true },
-  });
-  if (!membership) {
-    return NextResponse.json({ error: "not_a_member" }, { status: 403 });
   }
 
   const results = await prisma.raceSessionResult.findMany({

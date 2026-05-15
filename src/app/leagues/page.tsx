@@ -195,9 +195,10 @@ export default function LeaguesPage() {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {leagues.map((league) => (
-                <article
+                <Link
                   key={league.id}
-                  className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5"
+                  href={`/app/${league.iracingLeagueId}`}
+                  className="block rounded-2xl border border-zinc-800 bg-zinc-900 p-5 transition-colors hover:border-zinc-600"
                 >
                   <div className="mb-4 flex items-start gap-3">
                     {league.smallLogo ? (
@@ -250,7 +251,7 @@ export default function LeaguesPage() {
                       </span>
                     </p>
                   </div>
-                </article>
+                </Link>
               ))}
             </div>
 

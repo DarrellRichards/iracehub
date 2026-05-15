@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -956,8 +956,7 @@ function EventCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const { session: authSession, loading: authLoading } = useAuth();
-  const router = useRouter();
+  const { session: authSession } = useAuth();
   const searchParams = useSearchParams();
   const params = useParams<{ leagueId: string }>();
 
@@ -974,16 +973,9 @@ export default function CalendarPage() {
 
   const triggerReload = useCallback(() => setReloadToken((t) => t + 1), []);
 
-  useEffect(() => {
-    if (!authLoading && !authSession?.authenticated) {
-      router.replace("/");
-    }
-  }, [authLoading, authSession, router]);
-
   // Load is handled by the useEffect below — no separate callback needed
 
   useEffect(() => {
-    if (!authSession?.authenticated) return;
     let cancelled = false;
     async function run() {
       setLoading(true);
@@ -1034,22 +1026,15 @@ export default function CalendarPage() {
     return () => {
       cancelled = true;
     };
-  }, [
-    authSession?.authenticated,
-    params.leagueId,
-    reloadToken,
-    requestedSeriesId,
-  ]);
+  }, [params.leagueId, reloadToken, requestedSeriesId]);
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="h-8 w-8 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
       </div>
     );
   }
-
-  if (!authSession?.authenticated) return null;
 
   const activeSeries =
     series.find((s) => s.id === selectedSeriesId) ?? series[0];
