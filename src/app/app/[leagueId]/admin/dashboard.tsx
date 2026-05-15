@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import {
+  Trophy,
+  Users,
+  Grid,
+  Share2,
+  Settings,
+  BarChart3,
+  ExternalLink,
+} from "lucide-react";
 
 interface LeagueDetail {
   id: string;
@@ -22,7 +32,7 @@ interface AdminStats {
   pendingJoinRequests: number;
 }
 
-export default function LeagueAdminPage() {
+export default function AdminDashboard() {
   const { session, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const params = useParams<{ leagueId: string }>();
@@ -116,35 +126,37 @@ export default function LeagueAdminPage() {
     {
       title: "Series & Seasons",
       description: "Manage racing series, seasons, and schedules",
-      emoji: "🏆",
+      icon: Trophy,
       href: `/app/${league?.routeLeagueId}/admin/series`,
-      stat: 0,
+      stat: stats.seriesCount,
       statLabel: "series",
     },
     {
       title: "Members",
       description: "View and manage league members",
-      emoji: "👥",
+      icon: Users,
       href: `/app/${league?.routeLeagueId}/admin/members`,
-      stat: 0,
+      stat: stats.memberCount,
       statLabel: "members",
+      badge:
+        stats.pendingJoinRequests > 0 ? stats.pendingJoinRequests : undefined,
     },
     {
       title: "Points Systems",
       description: "Create and manage scoring systems",
-      emoji: "📊",
+      icon: Grid,
       href: `/app/${league?.routeLeagueId}/admin/points-system`,
     },
     {
       title: "Widgets",
       description: "Generate embeddable league widgets",
-      emoji: "🔗",
+      icon: Share2,
       href: `/app/${league?.routeLeagueId}/admin/widgets`,
     },
     {
       title: "Settings",
       description: "Configure virtual money, recruiting, and more",
-      emoji: "⚙️",
+      icon: Settings,
       href: `/app/${league?.routeLeagueId}/admin/settings`,
     },
   ];
@@ -194,9 +206,20 @@ export default function LeagueAdminPage() {
             {/* League Header */}
             <div className="mb-12">
               <div className="flex items-start gap-4">
-                <div className="h-20 w-20 rounded-xl bg-zinc-800 flex items-center justify-center text-3xl">
-                  🏁
-                </div>
+                {league.smallLogo ? (
+                  <Image
+                    src={league.smallLogo}
+                    alt={league.leagueName}
+                    width={80}
+                    height={80}
+                    unoptimized
+                    className="h-20 w-20 rounded-xl object-cover border border-zinc-800"
+                  />
+                ) : (
+                  <div className="h-20 w-20 rounded-xl bg-zinc-800 flex items-center justify-center text-3xl">
+                    🏁
+                  </div>
+                )}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <h1 className="text-4xl font-black tracking-tight">
@@ -225,29 +248,54 @@ export default function LeagueAdminPage() {
             </div>
 
             {/* Admin Sections Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
-              {adminSections.map((section) => (
-                <Link
-                  key={section.href}
-                  href={section.href}
-                  className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 hover:border-red-500/50 hover:bg-zinc-900/80 transition-all"
-                >
-                  <div className="text-3xl mb-4">{section.emoji}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {adminSections.map((section) => {
+                const Icon = section.icon;
+                return (
+                  <Link
+                    key={section.href}
+                    href={section.href}
+                    className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 hover:border-red-500/50 hover:bg-zinc-900/80 transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 group-hover:bg-red-500/20 transition-colors">
+                        <Icon className="w-5 h-5 text-red-400" />
+                      </div>
+                      {section.badge && (
+                        <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
+                          {section.badge}
+                        </span>
+                      )}
+                    </div>
 
-                  <h3 className="text-lg font-bold mb-1 group-hover:text-red-400 transition-colors">
-                    {section.title}
-                  </h3>
-                  <p className="text-sm text-zinc-400">{section.description}</p>
+                    <h3 className="text-lg font-bold mb-1 group-hover:text-red-400 transition-colors">
+                      {section.title}
+                    </h3>
+                    <p className="text-sm text-zinc-400 mb-4">
+                      {section.description}
+                    </p>
 
-                  <div className="mt-4 flex items-center gap-2 text-red-400 text-sm font-medium group-hover:translate-x-1 transition-transform">
-                    Go to {section.title} →
-                  </div>
-                </Link>
-              ))}
+                    {section.stat !== undefined && (
+                      <div className="pt-4 border-t border-zinc-800">
+                        <p className="text-xs text-zinc-500 uppercase tracking-wider">
+                          {section.statLabel}
+                        </p>
+                        <p className="text-2xl font-bold text-white mt-1">
+                          {section.stat}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex items-center gap-2 text-red-400 text-sm font-medium group-hover:translate-x-1 transition-transform">
+                      Go to {section.title} <ExternalLink className="w-3 h-3" />
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
 
             {/* Quick Links */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
+            <div className="mt-12 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
               <h2 className="text-lg font-bold mb-4">Quick Actions</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Link
@@ -255,18 +303,23 @@ export default function LeagueAdminPage() {
                   className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
                 >
                   <span className="text-sm">Pending Join Requests</span>
+                  {stats.pendingJoinRequests > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-semibold">
+                      {stats.pendingJoinRequests}
+                    </span>
+                  )}
                 </Link>
-                <Link
+                <a
                   href={`/app/${league.routeLeagueId}/admin/points-system`}
                   className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
                 >
                   <span className="text-sm">Create Points System</span>
-                </Link>
+                </a>
                 <a
                   href="#"
                   className="flex items-center gap-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
                 >
-                  <span className="text-sm">Documentation & Help</span>
+                  <span className="text-sm">View Documentation</span>
                 </a>
               </div>
             </div>

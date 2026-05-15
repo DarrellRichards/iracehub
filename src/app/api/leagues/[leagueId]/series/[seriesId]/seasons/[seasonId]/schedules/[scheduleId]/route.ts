@@ -5,12 +5,15 @@ import { Prisma } from "@prisma/client";
 
 interface ScheduleUpdateRequest {
   eventDate?: string;
+  roomOpenAt?: string;
   raceName?: string;
   isOffWeek?: boolean;
   pointsCount?: boolean;
   canDrop?: boolean;
   registrationEnabled?: boolean;
   trackName?: string;
+  trackConfigName?: string;
+  trackCategory?: string;
   trackId?: number;
   raceLength?: string;
   virtualPurse?: number;
@@ -141,9 +144,39 @@ export async function PATCH(
     }
     if (data.stages !== undefined)
       updateData.stages = normalizeStages(data.stages) as Prisma.JsonValue;
-    if (data.weather !== undefined)
-      updateData.weather = data.weather as Prisma.JsonValue;
+    if (data.weather !== undefined || data.roomOpenAt !== undefined) {
+      const baseWeather =
+        schedule.weather && typeof schedule.weather === "object"
+          ? (schedule.weather as Record<string, unknown>)
+          : {};
+      updateData.weather = {
+        ...baseWeather,
+        ...(data.weather ?? {}),
+        roomOpenAt:
+          data.roomOpenAt ??
+          (baseWeather.roomOpenAt as string | undefined) ??
+          null,
+        raceStartAt:
+          data.eventDate ??
+          (baseWeather.raceStartAt as string | undefined) ??
+          schedule.eventDate.toISOString(),
+        track: data.trackId
+          ? {
+              id: data.trackId,
+              name: data.trackName ?? null,
+              configName: data.trackConfigName ?? null,
+              category: data.trackCategory ?? null,
+            }
+          : ((baseWeather.track as Record<string, unknown> | undefined) ??
+            null),
+      } as Prisma.JsonValue;
+    }
     if (data.raceOrder !== undefined) updateData.raceOrder = data.raceOrder;
+    if (data.trackName !== undefined) {
+      updateData.trackName = data.trackName
+        ? [data.trackName, data.trackConfigName].filter(Boolean).join(" · ")
+        : null;
+    }
 
     const updated = await prisma.schedule.update({
       where: { id: scheduleId },

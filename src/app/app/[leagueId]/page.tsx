@@ -1,10 +1,30 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { useAuth } from "@/components/AuthProvider";
+import {
+  calculateLandingStats,
+  flattenUpcomingEvents,
+  fmtDate,
+  fmtPoints,
+  fmtTime,
+  formatStages,
+  getActiveSeries,
+  getRegistrationState,
+  pickFeaturedNextRace,
+  readJsonSafely,
+  relativeEventLabel,
+  formatWeather,
+  timeUntilEvent,
+} from "./landing-utils";
 import { formatMoney } from "@/lib/money";
 
 interface StandingEntry {
@@ -44,6 +64,10 @@ interface NextEvent {
   raceLength: string | null;
   raceOrder: number;
   iracingSessionId: number | null;
+  weather: Record<string, unknown>;
+  roomOpenTime: string | null;
+  greenFlagTime: string | null;
+  stages: Array<{ stageNumber: number; endLap: number }> | null;
   importedSession: {
     id: string;
     iracingSessionId: number | null;
@@ -112,109 +136,29 @@ interface LandingPayload {
     rosterCount: number | null;
     about: string | null;
     message: string | null;
+    recruiting: {
+      open: boolean;
+      series: Array<{ id: string; name: string }>;
+    };
   };
   isAdmin: boolean;
   canSelfRegister: boolean;
+  isLeagueMember: boolean;
+  viewer: {
+    iracingCustId: number;
+    displayName: string | null;
+    country: string | null;
+  } | null;
+  currentJoinRequest: {
+    id: string;
+    status: "PENDING";
+    createdAt: string;
+    requestedSeries: Array<{ id: string; name: string }>;
+  } | null;
   series: SeriesCard[];
 }
 
-const REGISTRATION_LOCK_WINDOW_MS = 20 * 60 * 1000;
-
-function fmtDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function fmtTime(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
-}
-
-function fmtPoints(value: number) {
-  return value % 1 === 0 ? String(value) : value.toFixed(1);
-}
-
-function relativeEventLabel(dateStr: string) {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diff = date.getTime() - now.getTime();
-  const diffDays = Math.ceil(diff / 86400000);
-
-  if (diffDays <= 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
-  if (diffDays < 7) return `In ${diffDays} days`;
-  return "Upcoming";
-}
-
-function getRegistrationState(args: {
-  eventDate: string;
-  registrationEnabled: boolean;
-  hasResults: boolean;
-}) {
-  const eventTime = new Date(args.eventDate).getTime();
-  const now = Date.now();
-  const lockTime = eventTime - REGISTRATION_LOCK_WINDOW_MS;
-
-  if (!args.registrationEnabled) {
-    return {
-      isClosed: true,
-      summaryLabel: "Disabled",
-      actionLabel: "Registration Disabled",
-      helperText: "Registration is disabled for this event.",
-    };
-  }
-
-  if (args.hasResults) {
-    return {
-      isClosed: true,
-      summaryLabel: "Results posted",
-      actionLabel: "Results Posted",
-      helperText:
-        "Registration is closed because results have already been posted.",
-    };
-  }
-
-  if (now >= eventTime) {
-    return {
-      isClosed: true,
-      summaryLabel: "Event passed",
-      actionLabel: "Event Passed",
-      helperText: "This event has already started or finished.",
-    };
-  }
-
-  if (now >= lockTime) {
-    return {
-      isClosed: true,
-      summaryLabel: "Closed within 20 min",
-      actionLabel: "Registration Closed",
-      helperText: "Registration closes 20 minutes before the event start time.",
-    };
-  }
-
-  return {
-    isClosed: false,
-    summaryLabel: null,
-    actionLabel: null,
-    helperText: null,
-  };
-}
-
-async function readJsonSafely<T>(response: Response): Promise<T | null> {
-  try {
-    const raw = await response.text();
-    if (!raw.trim()) return null;
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
+type SeriesPanel = "overview" | "results" | "standings";
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
@@ -238,6 +182,17 @@ export default function LeaguePage() {
   const [registrationError, setRegistrationError] = useState<string | null>(
     null,
   );
+  const [showJoinRequestForm, setShowJoinRequestForm] = useState(false);
+  const [submittingJoinRequest, setSubmittingJoinRequest] = useState(false);
+  const [joinRequestError, setJoinRequestError] = useState<string | null>(null);
+  const [joinIracingId, setJoinIracingId] = useState("");
+  const [joinFullName, setJoinFullName] = useState("");
+  const [joinState, setJoinState] = useState("");
+  const [joinCountry, setJoinCountry] = useState("");
+  const [joinWhy, setJoinWhy] = useState("");
+  const [joinSeriesIds, setJoinSeriesIds] = useState<string[]>([]);
+  const [activeSeriesId, setActiveSeriesId] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<SeriesPanel>("overview");
 
   const loadLanding = useCallback(async () => {
     try {
@@ -259,6 +214,13 @@ export default function LeaguePage() {
       }
 
       setData(landingPayload);
+      setJoinIracingId(
+        landingPayload.viewer
+          ? String(landingPayload.viewer.iracingCustId)
+          : "",
+      );
+      setJoinFullName(landingPayload.viewer?.displayName ?? "");
+      setJoinCountry(landingPayload.viewer?.country ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed_to_load_landing");
     } finally {
@@ -271,6 +233,86 @@ export default function LeaguePage() {
       void loadLanding();
     });
   }, [loadLanding]);
+
+  function toggleJoinSeries(seriesId: string, checked: boolean) {
+    setJoinSeriesIds((previous) => {
+      if (checked) {
+        if (previous.includes(seriesId)) return previous;
+        return [...previous, seriesId];
+      }
+      return previous.filter((id) => id !== seriesId);
+    });
+  }
+
+  async function handleJoinRequestSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!data) return;
+
+    setSubmittingJoinRequest(true);
+    setJoinRequestError(null);
+
+    try {
+      const response = await fetch(
+        `/api/leagues/${data.league.id}/join-requests`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            iracingId: Number.parseInt(joinIracingId, 10),
+            fullName: joinFullName,
+            state: joinState,
+            country: joinCountry,
+            whyJoin: joinWhy,
+            seriesIds: joinSeriesIds,
+          }),
+        },
+      );
+
+      const payload = await readJsonSafely<{
+        error?: string;
+        message?: string;
+        id?: string;
+        status?: "PENDING";
+        createdAt?: string;
+        requestedSeries?: Array<{ id: string; name: string }>;
+      }>(response);
+
+      if (!response.ok) {
+        throw new Error(
+          payload?.message ??
+            payload?.error ??
+            `join_request_failed_${response.status}`,
+        );
+      }
+
+      setData((previous) =>
+        previous
+          ? {
+              ...previous,
+              currentJoinRequest:
+                payload?.id && payload?.status && payload?.createdAt
+                  ? {
+                      id: payload.id,
+                      status: payload.status,
+                      createdAt: payload.createdAt,
+                      requestedSeries: payload.requestedSeries ?? [],
+                    }
+                  : previous.currentJoinRequest,
+            }
+          : previous,
+      );
+
+      setShowJoinRequestForm(false);
+      setJoinWhy("");
+      setJoinSeriesIds([]);
+    } catch (err) {
+      setJoinRequestError(
+        err instanceof Error ? err.message : "join_request_failed",
+      );
+    } finally {
+      setSubmittingJoinRequest(false);
+    }
+  }
 
   async function handleRegistrationToggle(
     scheduleId: string,
@@ -312,42 +354,35 @@ export default function LeaguePage() {
     }
   }
 
-  const stats = useMemo(() => {
-    return {
-      memberCount: data?.league.rosterCount ?? 0,
-      seriesCount: data?.series.length ?? 0,
-      nextEvents: data?.series.filter((item) => item.nextEvent).length ?? 0,
-    };
-  }, [data]);
-
+  const stats = useMemo(() => calculateLandingStats(data), [data]);
   const heroBackground =
     data?.league.largeLogo ?? data?.league.smallLogo ?? null;
-
-  const featuredNextRace = useMemo(() => {
-    if (!data) return null;
-
-    return (
-      data.series
-        .filter((series) => series.nextEvent)
-        .map((series) => ({
-          seriesId: series.id,
-          seriesName: series.name,
-          seasonName: series.season?.seasonName ?? null,
-          event: series.nextEvent!,
-        }))
-        .sort(
-          (a, b) =>
-            new Date(a.event.eventDate).getTime() -
-            new Date(b.event.eventDate).getTime(),
-        )[0] ?? null
-    );
-  }, [data]);
+  const featuredNextRace = useMemo(
+    () => pickFeaturedNextRace(data?.series ?? []),
+    [data?.series],
+  );
+  const upcomingTicker = useMemo(
+    () => flattenUpcomingEvents(data?.series ?? []).slice(0, 8),
+    [data?.series],
+  );
+  const activeSeries = useMemo(
+    () => getActiveSeries(data?.series ?? [], activeSeriesId),
+    [data?.series, activeSeriesId],
+  );
 
   const featuredNextRaceRegistrationState = featuredNextRace
     ? getRegistrationState({
         eventDate: featuredNextRace.event.eventDate,
         registrationEnabled: featuredNextRace.event.registrationEnabled,
         hasResults: Boolean(featuredNextRace.event.importedSession?.hasResults),
+      })
+    : null;
+
+  const activeSeriesRegistrationState = activeSeries?.nextEvent
+    ? getRegistrationState({
+        eventDate: activeSeries.nextEvent.eventDate,
+        registrationEnabled: activeSeries.nextEvent.registrationEnabled,
+        hasResults: Boolean(activeSeries.nextEvent.importedSession?.hasResults),
       })
     : null;
 
@@ -418,722 +453,1002 @@ export default function LeaguePage() {
                   style={{ backgroundImage: `url(${heroBackground})` }}
                 />
               )}
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(239,68,68,0.22),transparent_35%),linear-gradient(to_bottom_right,rgba(24,24,27,0.45),rgba(9,9,11,0.88))]" />
-              <div className="relative grid gap-8 px-6 py-8 lg:grid-cols-[1.4fr_0.9fr] lg:px-8 lg:py-10">
-                <div className="flex items-start gap-5">
-                  {data.league.smallLogo ? (
-                    <Image
-                      src={data.league.smallLogo}
-                      alt={data.league.leagueName}
-                      width={88}
-                      height={88}
-                      unoptimized
-                      className="h-20 w-20 rounded-2xl border border-zinc-800 object-cover shadow-lg shadow-black/30"
-                    />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(239,68,68,0.26),transparent_35%),linear-gradient(to_bottom_right,rgba(24,24,27,0.52),rgba(9,9,11,0.9))]" />
+
+              <div className="relative grid gap-6 px-6 py-8 lg:grid-cols-[1.35fr_0.95fr] lg:px-8 lg:py-10">
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-red-800/50 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-300">
+                      Next Upcoming Event
+                    </span>
+                    {data.isAdmin && (
+                      <span className="rounded-full border border-blue-800/50 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+                        Admin Access
+                      </span>
+                    )}
+                  </div>
+
+                  {featuredNextRace ? (
+                    <div className="relative overflow-hidden rounded-2xl border border-red-500/50 bg-gradient-to-br from-red-950/50 via-zinc-900 to-zinc-950 p-6 shadow-lg shadow-red-500/10">
+                      {/* Background glow effect */}
+                      <div className="absolute -inset-1 -z-10 bg-gradient-to-r from-red-500/20 via-transparent to-orange-500/20 opacity-50 blur-xl" />
+
+                      <div className="relative">
+                        {/* Header with race name */}
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              <span className="rounded-full border border-red-500/60 bg-red-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-red-300">
+                                ⚡ Next Race
+                              </span>
+                              {timeUntilEvent(featuredNextRace.event.eventDate)
+                                .isImminent && (
+                                <span className="animate-pulse rounded-full border border-yellow-500/60 bg-yellow-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-yellow-300">
+                                  🔥 Imminent
+                                </span>
+                              )}
+                            </div>
+                            <h2 className="text-2xl sm:text-3xl font-black text-white">
+                              {featuredNextRace.event.raceName}
+                            </h2>
+                            <p className="mt-2 text-sm text-zinc-300">
+                              {featuredNextRace.seriesName}
+                              {featuredNextRace.seasonName
+                                ? ` · ${featuredNextRace.seasonName}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Time and track info grid */}
+                        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur">
+                            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                              🏁 Green Flag
+                            </p>
+                            <p className="text-sm font-bold text-white">
+                              {fmtTime(
+                                featuredNextRace.event.greenFlagTime ||
+                                  featuredNextRace.event.eventDate,
+                              )}
+                            </p>
+                            <p className="text-xs text-zinc-400 mt-1">
+                              {fmtDate(featuredNextRace.event.eventDate)}
+                            </p>
+                          </div>
+
+                          {featuredNextRace.event.roomOpenTime && (
+                            <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur">
+                              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                                🚪 Room Opens
+                              </p>
+                              <p className="text-sm font-bold text-white">
+                                {fmtTime(featuredNextRace.event.roomOpenTime)}
+                              </p>
+                              <p className="text-xs text-zinc-400 mt-1">
+                                {Math.round(
+                                  (new Date(
+                                    featuredNextRace.event.eventDate,
+                                  ).getTime() -
+                                    new Date(
+                                      featuredNextRace.event.roomOpenTime,
+                                    ).getTime()) /
+                                    (1000 * 60),
+                                )}{" "}
+                                min before
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur">
+                            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                              🏆 Track
+                            </p>
+                            <p className="text-sm font-bold text-white">
+                              {featuredNextRace.event.importedSession
+                                ?.trackName ??
+                                featuredNextRace.event.trackName ??
+                                "Track TBD"}
+                            </p>
+                            {featuredNextRace.event.raceLength && (
+                              <p className="text-xs text-zinc-400 mt-1">
+                                {featuredNextRace.event.raceLength}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur">
+                            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                              🌤️ Weather
+                            </p>
+                            <p className="text-sm font-bold text-white">
+                              {formatWeather(featuredNextRace.event.weather)}
+                            </p>
+                          </div>
+
+                          {formatStages(featuredNextRace.event.stages) && (
+                            <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur">
+                              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                                🏁 Stages
+                              </p>
+                              <p className="text-sm font-bold text-white">
+                                {formatStages(featuredNextRace.event.stages)}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Registration and info section */}
+                        <div className="mt-5 flex flex-col sm:flex-row gap-3 items-stretch">
+                          <div className="flex-1">
+                            <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/60 p-3 backdrop-blur h-full flex flex-col justify-center">
+                              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-1">
+                                👥 Registered
+                              </p>
+                              <p className="text-lg font-bold text-white">
+                                {featuredNextRace.event.registrationCount}{" "}
+                                driver
+                                {featuredNextRace.event.registrationCount !== 1
+                                  ? "s"
+                                  : ""}
+                              </p>
+                              {featuredNextRace.event.isRegisteredByMe && (
+                                <p className="text-xs text-green-400 mt-1 font-semibold">
+                                  ✓ You&apos;re registered
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {!featuredNextRaceRegistrationState?.isClosed &&
+                            isAuthenticated &&
+                            data.isLeagueMember && (
+                              <button
+                                onClick={() =>
+                                  void handleRegistrationToggle(
+                                    featuredNextRace.event.id,
+                                    featuredNextRace.event.isRegisteredByMe,
+                                  )
+                                }
+                                disabled={
+                                  registeringScheduleId ===
+                                  featuredNextRace.event.id
+                                }
+                                className={`px-6 py-3 rounded-xl font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                                  featuredNextRace.event.isRegisteredByMe
+                                    ? "border border-red-500/60 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                                    : "border border-green-500/60 bg-gradient-to-r from-green-500/30 to-emerald-500/30 text-green-300 hover:from-green-500/40 hover:to-emerald-500/40 shadow-lg shadow-green-500/20"
+                                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {registeringScheduleId ===
+                                featuredNextRace.event.id ? (
+                                  <>
+                                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                    Loading...
+                                  </>
+                                ) : featuredNextRace.event.isRegisteredByMe ? (
+                                  <>
+                                    <span>✓</span>
+                                    <span>Unregister</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>🏁</span>
+                                    <span>Register</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                        </div>
+
+                        {registrationError && (
+                          <div className="mt-3 rounded-lg border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-300">
+                            {registrationError}
+                          </div>
+                        )}
+
+                        {featuredNextRaceRegistrationState?.helperText && (
+                          <div className="mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-300">
+                            {featuredNextRaceRegistrationState.helperText}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-800 text-3xl">
-                      🏁
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                      <h2 className="text-xl font-black text-white sm:text-2xl">
+                        No upcoming event
+                      </h2>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        There are no future races scheduled yet.
+                      </p>
                     </div>
                   )}
 
-                  <div className="min-w-0">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full border border-red-800/50 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-300">
-                        League Landing
-                      </span>
-                      {data.isAdmin && (
-                        <span className="rounded-full border border-blue-800/50 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
-                          Admin Access
-                        </span>
-                      )}
-                    </div>
-                    <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-                      {data.league.leagueName}
-                    </h1>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
-                      {data.league.message ||
-                        data.league.about ||
-                        "Track the next event, review the latest race, see current top-10 standings, and manage event registration across every active series."}
-                    </p>
-
-                    <div className="mt-5 flex flex-wrap gap-3 text-sm text-zinc-300">
-                      <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-3">
+                      <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        iRacing
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-200">
                         {data.league.iracingLeagueId != null
-                          ? `iRacing League ID: ${data.league.iracingLeagueId}`
-                          : "iRacing League: Not linked yet"}
-                      </span>
-                      <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
-                        {stats.memberCount} Members
-                      </span>
-                      <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
-                        {stats.seriesCount} Active Series
-                      </span>
-                      <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
-                        {stats.nextEvents} Upcoming Events
-                      </span>
+                          ? `ID ${data.league.iracingLeagueId}`
+                          : "Not linked"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-3">
+                      <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        Members
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-200">
+                        {stats.memberCount}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-3">
+                      <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        Series
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-200">
+                        {stats.seriesCount}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-3">
+                      <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        Upcoming
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-200">
+                        {stats.nextEvents} events
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-                  {isAuthenticated && (
-                    <Link
-                      href={`/app/${data.league.routeLeagueId}/teams`}
-                      className="rounded-2xl border border-red-800/50 bg-red-500/10 p-5 text-left transition-colors hover:border-red-700"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">
-                        Team
-                      </p>
-                      <h2 className="mt-2 text-lg font-bold text-white">
-                        Teams & Drivers
-                      </h2>
-                      <p className="mt-1 text-sm text-zinc-300">
-                        View all teams with driver car numbers and create your
-                        own team.
-                      </p>
-                    </Link>
-                  )}
-                  <Link
-                    href={`/app/${data.league.routeLeagueId}/calendar`}
-                    className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700"
-                  >
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Schedule
+                      Fast Navigation
                     </p>
-                    <h2 className="mt-2 text-lg font-bold text-white">
-                      Full Calendar & Results
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      Open the complete event calendar, import race results, and
-                      review detailed registrations.
-                    </p>
-                  </Link>
-                  <Link
-                    href={`/app/${data.league.routeLeagueId}/standings`}
-                    className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700"
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                      Points
-                    </p>
-                    <h2 className="mt-2 text-lg font-bold text-white">
-                      Full Standings View
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      See every points table beyond the top 10 preview shown
-                      below.
-                    </p>
-                  </Link>
-                  {data.isAdmin && (
-                    <Link
-                      href={`/app/${data.league.routeLeagueId}/admin`}
-                      className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700 sm:col-span-2 lg:col-span-1"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                        League Admin
-                      </p>
-                      <h2 className="mt-2 text-lg font-bold text-white">
-                        Open Admin Panel
-                      </h2>
-                      <p className="mt-1 text-sm text-zinc-400">
-                        Manage widgets, schedules, points systems, seasons, and
-                        registrations.
-                      </p>
-                    </Link>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {isAuthenticated && (
+                        <Link
+                          href={`/app/${data.league.routeLeagueId}/teams`}
+                          className="rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500"
+                        >
+                          Teams & Drivers
+                        </Link>
+                      )}
+                      <Link
+                        href={`/app/${data.league.routeLeagueId}/calendar`}
+                        className="rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500"
+                      >
+                        Calendar & Results
+                      </Link>
+                      <Link
+                        href={`/app/${data.league.routeLeagueId}/standings`}
+                        className="rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500"
+                      >
+                        Full Standings
+                      </Link>
+                      {data.isAdmin && (
+                        <Link
+                          href={`/app/${data.league.routeLeagueId}/admin`}
+                          className="rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 transition-colors hover:border-zinc-500"
+                        >
+                          Admin Panel
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+
+                  {isAuthenticated && !data.isLeagueMember && (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
+                      {data.currentJoinRequest ? (
+                        <>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
+                            Join Request Pending
+                          </p>
+                          <p className="mt-2 text-sm text-zinc-200">
+                            Submitted on{" "}
+                            {new Date(
+                              data.currentJoinRequest.createdAt,
+                            ).toLocaleDateString()}
+                            .
+                          </p>
+                          <p className="mt-2 text-xs text-zinc-400">
+                            Requested series:{" "}
+                            {data.currentJoinRequest.requestedSeries
+                              .map((s) => s.name)
+                              .join(", ") || "None"}
+                          </p>
+                        </>
+                      ) : data.league.recruiting.open ? (
+                        <>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Recruiting
+                          </p>
+                          <h3 className="mt-2 text-lg font-bold text-white">
+                            Request to Join
+                          </h3>
+                          <p className="mt-1 text-sm text-zinc-400">
+                            Apply in a few steps and select the series you want
+                            to race.
+                          </p>
+
+                          {!showJoinRequestForm ? (
+                            <button
+                              onClick={() => setShowJoinRequestForm(true)}
+                              className="mt-4 rounded-lg border border-red-700/60 px-3 py-1.5 text-sm font-semibold text-red-300 transition-colors hover:border-red-500"
+                            >
+                              Start Request
+                            </button>
+                          ) : (
+                            <form
+                              onSubmit={(event) =>
+                                void handleJoinRequestSubmit(event)
+                              }
+                              className="mt-4 space-y-3"
+                            >
+                              <input
+                                type="number"
+                                min="1"
+                                value={joinIracingId}
+                                onChange={(event) =>
+                                  setJoinIracingId(event.target.value)
+                                }
+                                placeholder="iRacing ID"
+                                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                                required
+                              />
+                              <input
+                                type="text"
+                                value={joinFullName}
+                                onChange={(event) =>
+                                  setJoinFullName(event.target.value)
+                                }
+                                placeholder="Full Name"
+                                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                                required
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <input
+                                  type="text"
+                                  value={joinState}
+                                  onChange={(event) =>
+                                    setJoinState(event.target.value)
+                                  }
+                                  placeholder="State"
+                                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                                  required
+                                />
+                                <input
+                                  type="text"
+                                  value={joinCountry}
+                                  onChange={(event) =>
+                                    setJoinCountry(event.target.value)
+                                  }
+                                  placeholder="Country"
+                                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                                  required
+                                />
+                              </div>
+                              <textarea
+                                value={joinWhy}
+                                onChange={(event) =>
+                                  setJoinWhy(event.target.value)
+                                }
+                                placeholder="Why would you like to join this league?"
+                                rows={3}
+                                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                                required
+                              />
+
+                              <div>
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                                  Series you want to run
+                                </p>
+                                <div className="space-y-1.5">
+                                  {data.league.recruiting.series.map(
+                                    (series) => (
+                                      <label
+                                        key={series.id}
+                                        className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-sm text-zinc-200"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={joinSeriesIds.includes(
+                                            series.id,
+                                          )}
+                                          onChange={(event) =>
+                                            toggleJoinSeries(
+                                              series.id,
+                                              event.target.checked,
+                                            )
+                                          }
+                                          className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-red-500 focus:ring-red-500"
+                                        />
+                                        {series.name}
+                                      </label>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+
+                              {joinRequestError && (
+                                <p className="text-xs text-red-400">
+                                  {joinRequestError}
+                                </p>
+                              )}
+
+                              <div className="flex gap-2">
+                                <button
+                                  type="submit"
+                                  disabled={
+                                    submittingJoinRequest ||
+                                    joinSeriesIds.length === 0
+                                  }
+                                  className="rounded-lg border border-green-700/60 px-3 py-1.5 text-sm font-semibold text-green-300 transition-colors hover:border-green-500 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {submittingJoinRequest
+                                    ? "Submitting..."
+                                    : "Submit Request"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowJoinRequestForm(false);
+                                    setJoinRequestError(null);
+                                  }}
+                                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-zinc-500"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </form>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Recruiting
+                          </p>
+                          <h3 className="mt-2 text-lg font-bold text-white">
+                            Recruiting Closed
+                          </h3>
+                          <p className="mt-1 text-sm text-zinc-400">
+                            This league is not currently accepting join
+                            requests.
+                          </p>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
             </section>
 
-            {featuredNextRace && (
-              <section className="overflow-hidden rounded-3xl border border-red-900/40 bg-gradient-to-r from-red-950/40 via-zinc-900 to-zinc-950">
-                <div className="grid gap-5 px-6 py-6 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-red-300">
-                      Featured Next Race
-                    </p>
-                    <h2 className="mt-2 text-2xl font-black tracking-tight text-white sm:text-3xl">
-                      {featuredNextRace.event.raceName}
-                    </h2>
-                    <p className="mt-2 text-sm text-zinc-300 sm:text-base">
-                      {featuredNextRace.seriesName}
-                      {featuredNextRace.seasonName
-                        ? ` · ${featuredNextRace.seasonName}`
-                        : ""}
-                    </p>
-                    <div className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                          Date
-                        </p>
-                        <p className="mt-1 font-semibold text-zinc-100">
-                          {fmtDate(featuredNextRace.event.eventDate)}
-                        </p>
-                        <p className="text-zinc-400">
-                          {fmtTime(featuredNextRace.event.eventDate)}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                          Track
-                        </p>
-                        <p className="mt-1 font-semibold text-zinc-100">
-                          {featuredNextRace.event.importedSession?.trackName ??
-                            featuredNextRace.event.trackName ??
-                            "TBD"}
-                        </p>
-                        <p className="text-zinc-400">
-                          {featuredNextRace.event.raceLength ?? "Length TBD"}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/50 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-                          Registration
-                        </p>
-                        <p className="mt-1 font-semibold text-zinc-100">
-                          {featuredNextRace.event.registrationEnabled
-                            ? `${featuredNextRace.event.registrationCount} registered`
-                            : "Disabled"}
-                        </p>
-                        <p className="text-zinc-400">
-                          {featuredNextRace.event.isRegisteredByMe
-                            ? "You are on the list"
-                            : (featuredNextRaceRegistrationState?.summaryLabel ??
-                              relativeEventLabel(
-                                featuredNextRace.event.eventDate,
-                              ))}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col justify-between gap-4 rounded-3xl border border-zinc-800 bg-zinc-950/55 p-5">
-                    <div>
-                      <p className="text-sm text-zinc-300">
-                        The soonest green flag across the league. Jump straight
-                        into the series schedule or confirm your seat now.
+            {upcomingTicker.length > 0 && (
+              <section className="rounded-3xl border border-zinc-800 bg-zinc-900/50 p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-bold text-white">
+                    Upcoming Race Ticker
+                  </h2>
+                  <p className="text-xs text-zinc-500">
+                    Click any race to focus its series
+                  </p>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-1">
+                  {upcomingTicker.map((item) => (
+                    <button
+                      key={item.event.id}
+                      onClick={() => {
+                        setActiveSeriesId(item.seriesId);
+                        setActivePanel("overview");
+                      }}
+                      className={`min-w-[260px] rounded-2xl border px-4 py-3 text-left transition-colors ${
+                        activeSeriesId === item.seriesId
+                          ? "border-red-700/70 bg-red-950/20"
+                          : "border-zinc-800 bg-zinc-950/60 hover:border-zinc-700"
+                      }`}
+                    >
+                      <p className="text-xs uppercase tracking-widest text-zinc-500">
+                        {item.seriesName}
                       </p>
-                      {registrationError && registeringScheduleId === null && (
-                        <p className="mt-3 text-xs text-red-400">
-                          {registrationError}
+                      <p className="mt-1 text-sm font-semibold text-zinc-100">
+                        {item.event.raceName}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {fmtDate(item.event.eventDate)} ·{" "}
+                        {fmtTime(item.event.eventDate)}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {item.event.importedSession?.trackName ??
+                          item.event.trackName ??
+                          "Track TBD"}
+                      </p>
+                      {formatStages(item.event.stages) && (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {formatStages(item.event.stages)}
                         </p>
                       )}
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <Link
-                        href={`/app/${data.league.routeLeagueId}/calendar?series=${featuredNextRace.seriesId}`}
-                        className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-500 hover:text-white"
-                      >
-                        Open Schedule
-                      </Link>
-                      {featuredNextRace.event.registrationEnabled && (
-                        <button
-                          onClick={() =>
-                            handleRegistrationToggle(
-                              featuredNextRace.event.id,
-                              featuredNextRace.event.isRegisteredByMe,
-                            )
-                          }
-                          disabled={
-                            registeringScheduleId ===
-                              featuredNextRace.event.id ||
-                            !data.canSelfRegister ||
-                            featuredNextRaceRegistrationState?.isClosed
-                          }
-                          className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                            featuredNextRace.event.isRegisteredByMe &&
-                            !featuredNextRaceRegistrationState?.isClosed
-                              ? "border-zinc-700 text-zinc-200 hover:border-red-500/60 hover:text-red-300"
-                              : featuredNextRaceRegistrationState?.isClosed
-                                ? "border-zinc-800 text-zinc-500"
-                                : "border-green-700/60 text-green-300 hover:border-green-500"
-                          }`}
-                        >
-                          {registeringScheduleId === featuredNextRace.event.id
-                            ? "Saving..."
-                            : featuredNextRaceRegistrationState?.isClosed
-                              ? featuredNextRaceRegistrationState.actionLabel
-                              : featuredNextRace.event.isRegisteredByMe
-                                ? "Unregister"
-                                : "Register for Race"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                    </button>
+                  ))}
                 </div>
               </section>
             )}
 
-            <section className="space-y-6">
-              {data.series.length === 0 ? (
-                <EmptyState
-                  title="No active series yet"
-                  body="Create or activate a series to show the next event, latest race result, and standings on this page."
-                />
-              ) : (
-                data.series.map((series) => {
-                  const nextEvent = series.nextEvent;
-                  const lastRace = series.lastRaceResult;
-                  const isRegistering = registeringScheduleId === nextEvent?.id;
-                  const nextEventRegistrationState = nextEvent
-                    ? getRegistrationState({
-                        eventDate: nextEvent.eventDate,
-                        registrationEnabled: nextEvent.registrationEnabled,
-                        hasResults: Boolean(
-                          nextEvent.importedSession?.hasResults,
-                        ),
-                      })
-                    : null;
+            {data.series.length === 0 ? (
+              <EmptyState
+                title="No active series yet"
+                body="Create or activate a series to show races, standings, and results on this page."
+              />
+            ) : activeSeries ? (
+              <section className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-5 sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                      Series Focus
+                    </p>
+                    <h2 className="mt-1 text-2xl font-black tracking-tight text-white">
+                      {activeSeries.name}
+                    </h2>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {activeSeries.season?.seasonName ?? "No active season"}
+                      {activeSeries.description
+                        ? ` · ${activeSeries.description}`
+                        : ""}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/app/${data.league.routeLeagueId}/calendar?series=${activeSeries.id}`}
+                    className="rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-zinc-200 transition-colors hover:border-zinc-500"
+                  >
+                    Full schedule
+                  </Link>
+                </div>
 
-                  return (
-                    <section
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {data.series.map((series) => (
+                    <button
                       key={series.id}
-                      className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/60"
+                      onClick={() => {
+                        setActiveSeriesId(series.id);
+                        setRegistrationError(null);
+                      }}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-widest transition-colors ${
+                        series.id === activeSeries.id
+                          ? "border-red-700/70 bg-red-950/30 text-red-300"
+                          : "border-zinc-700 bg-zinc-950/60 text-zinc-300 hover:border-zinc-500"
+                      }`}
                     >
-                      <div className="border-b border-zinc-800 bg-zinc-900/80 px-5 py-4 sm:px-6">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
+                      {series.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(["overview", "results", "standings"] as const).map(
+                    (panel) => (
+                      <button
+                        key={panel}
+                        onClick={() => setActivePanel(panel)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                          activePanel === panel
+                            ? "border-zinc-500 bg-zinc-800 text-white"
+                            : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500"
+                        }`}
+                      >
+                        {panel}
+                      </button>
+                    ),
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  {activePanel === "overview" && (
+                    <div className="space-y-5">
+                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
+                        <div className="mb-4 flex items-center justify-between gap-3">
                           <div>
-                            <h2 className="text-2xl font-black tracking-tight text-white">
-                              {series.name}
-                            </h2>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-400">
-                              <span>
-                                {series.season?.seasonName ??
-                                  "No active season"}
-                              </span>
-                              {series.description && (
-                                <span>· {series.description}</span>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                              Next Event
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-white">
+                              {activeSeries.nextEvent?.raceName ??
+                                "No upcoming event"}
+                            </h3>
+                          </div>
+                          {activeSeries.nextEvent && (
+                            <span className="rounded-full border border-red-800/40 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300">
+                              {relativeEventLabel(
+                                activeSeries.nextEvent.eventDate,
                               )}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full border border-zinc-700 bg-zinc-950/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                              {series.standings.length} in standings
                             </span>
-                            <Link
-                              href={`/app/${data.league.routeLeagueId}/calendar?series=${series.id}`}
-                              className="rounded-full border border-zinc-700 bg-zinc-950/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                            >
-                              Full schedule & results →
-                            </Link>
-                          </div>
+                          )}
                         </div>
+
+                        {activeSeries.nextEvent ? (
+                          <>
+                            <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                                <p className="text-xs text-zinc-500">
+                                  Date & Time
+                                </p>
+                                <p className="mt-1 font-medium text-zinc-100">
+                                  {fmtDate(activeSeries.nextEvent.eventDate)}
+                                </p>
+                                <p className="text-zinc-400">
+                                  {fmtTime(activeSeries.nextEvent.eventDate)}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                                <p className="text-xs text-zinc-500">Track</p>
+                                <p className="mt-1 font-medium text-zinc-100">
+                                  {activeSeries.nextEvent.importedSession
+                                    ?.trackName ??
+                                    activeSeries.nextEvent.trackName ??
+                                    "TBD"}
+                                </p>
+                                <p className="text-zinc-400">
+                                  {activeSeries.nextEvent.raceLength ??
+                                    "Length TBD"}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                                <p className="text-xs text-zinc-500">Flags</p>
+                                <p className="mt-1 text-zinc-200">
+                                  {activeSeries.nextEvent.pointsCount
+                                    ? "Points race"
+                                    : "Non-points event"}
+                                </p>
+                                <p className="text-zinc-400">
+                                  {activeSeries.nextEvent.canDrop
+                                    ? "Counts toward drops"
+                                    : "No drop marker"}
+                                </p>
+                              </div>
+                              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                                <p className="text-xs text-zinc-500">
+                                  Registrations
+                                </p>
+                                <p className="mt-1 font-medium text-zinc-100">
+                                  {activeSeries.nextEvent.registrationEnabled
+                                    ? `${activeSeries.nextEvent.registrationCount} driver${activeSeries.nextEvent.registrationCount === 1 ? "" : "s"}`
+                                    : "Disabled"}
+                                </p>
+                                <p className="text-zinc-400">
+                                  {activeSeries.nextEvent.isRegisteredByMe
+                                    ? "You are registered"
+                                    : (activeSeriesRegistrationState?.summaryLabel ??
+                                      "Open")}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+                              {activeSeries.nextEvent.registrationEnabled ? (
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div>
+                                    <p className="text-sm font-medium text-zinc-100">
+                                      {activeSeriesRegistrationState?.helperText ??
+                                        (activeSeries.nextEvent.isRegisteredByMe
+                                          ? "You are on the grid for this race."
+                                          : "Register now to confirm race attendance.")}
+                                    </p>
+                                    <p className="mt-1 text-xs text-zinc-500">
+                                      {data.canSelfRegister
+                                        ? "Registration updates instantly for this event."
+                                        : isAuthenticated
+                                          ? "Your member profile has not been synced yet, so self-registration is unavailable."
+                                          : "Sign in and join this league to register for races."}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() =>
+                                      handleRegistrationToggle(
+                                        activeSeries.nextEvent!.id,
+                                        activeSeries.nextEvent!
+                                          .isRegisteredByMe,
+                                      )
+                                    }
+                                    disabled={
+                                      registeringScheduleId ===
+                                        activeSeries.nextEvent.id ||
+                                      !data.canSelfRegister ||
+                                      activeSeriesRegistrationState?.isClosed
+                                    }
+                                    className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                      activeSeries.nextEvent.isRegisteredByMe &&
+                                      !activeSeriesRegistrationState?.isClosed
+                                        ? "border-zinc-700 text-zinc-200 hover:border-red-500/60 hover:text-red-300"
+                                        : activeSeriesRegistrationState?.isClosed
+                                          ? "border-zinc-800 text-zinc-500"
+                                          : "border-green-700/60 text-green-300 hover:border-green-500"
+                                    }`}
+                                  >
+                                    {activeSeriesRegistrationState?.isClosed
+                                      ? activeSeriesRegistrationState.actionLabel
+                                      : registeringScheduleId ===
+                                          activeSeries.nextEvent.id
+                                        ? "Saving..."
+                                        : activeSeries.nextEvent
+                                              .isRegisteredByMe
+                                          ? "Unregister"
+                                          : "Register"}
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-zinc-500">
+                                  Registration is disabled for this event.
+                                </p>
+                              )}
+
+                              {registrationError &&
+                                registeringScheduleId === null && (
+                                  <p className="mt-3 text-xs text-red-400">
+                                    {registrationError}
+                                  </p>
+                                )}
+                            </div>
+
+                            {data.isAdmin &&
+                              activeSeries.nextEvent.registeredMembers.length >
+                                0 && (
+                                <div className="mt-4 rounded-2xl border border-zinc-800 overflow-hidden">
+                                  <div className="bg-zinc-900 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    Registered Drivers (
+                                    {
+                                      activeSeries.nextEvent.registeredMembers
+                                        .length
+                                    }
+                                    )
+                                  </div>
+                                  <div className="divide-y divide-zinc-800">
+                                    {activeSeries.nextEvent.registeredMembers.map(
+                                      (registration) => (
+                                        <div
+                                          key={registration.id}
+                                          className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                                        >
+                                          <p className="truncate text-zinc-100">
+                                            {registration.member.displayName}
+                                            {registration.member.carNumber
+                                              ? ` #${registration.member.carNumber}`
+                                              : ""}
+                                            {registration.member.nickName
+                                              ? ` (${registration.member.nickName})`
+                                              : ""}
+                                          </p>
+                                          <Link
+                                            href={`/app/drivers/${registration.member.custId}?league=${data.league.routeLeagueId}`}
+                                            className="text-xs text-zinc-400 transition-colors hover:text-white"
+                                          >
+                                            Profile
+                                          </Link>
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                          </>
+                        ) : (
+                          <EmptyState
+                            title="No upcoming event"
+                            body="Add or sync a future schedule entry for this series to surface it here."
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activePanel === "results" && (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Last Race Result
+                          </p>
+                          <h3 className="mt-1 text-lg font-bold text-white">
+                            {activeSeries.lastRaceResult?.schedule?.raceName ??
+                              "No posted results yet"}
+                          </h3>
+                        </div>
+                        {activeSeries.lastRaceResult?.winnerName && (
+                          <span className="rounded-full border border-emerald-800/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                            Winner: {activeSeries.lastRaceResult.winnerName}
+                          </span>
+                        )}
                       </div>
 
-                      <div className="grid gap-6 p-5 sm:p-6 xl:grid-cols-[1.15fr_1fr]">
-                        <div className="space-y-6">
-                          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
-                            <div className="mb-4 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                  Next Event
-                                </p>
-                                <h3 className="mt-1 text-lg font-bold text-white">
-                                  {nextEvent?.raceName ?? "No upcoming event"}
-                                </h3>
-                              </div>
-                              {nextEvent && (
-                                <span className="rounded-full border border-red-800/40 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300">
-                                  {relativeEventLabel(nextEvent.eventDate)}
-                                </span>
-                              )}
-                            </div>
-
-                            {nextEvent ? (
-                              <>
-                                <div className="grid gap-3 text-sm sm:grid-cols-2">
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Date & Time
-                                    </p>
-                                    <p className="mt-1 font-medium text-zinc-100">
-                                      {fmtDate(nextEvent.eventDate)}
-                                    </p>
-                                    <p className="text-zinc-400">
-                                      {fmtTime(nextEvent.eventDate)}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Track
-                                    </p>
-                                    <p className="mt-1 font-medium text-zinc-100">
-                                      {nextEvent.importedSession?.trackName ??
-                                        nextEvent.trackName ??
-                                        "TBD"}
-                                    </p>
-                                    <p className="text-zinc-400">
-                                      {nextEvent.raceLength ?? "Length TBD"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Race Flags
-                                    </p>
-                                    <p className="mt-1 text-zinc-200">
-                                      {nextEvent.pointsCount
-                                        ? "Points race"
-                                        : "Non-points event"}
-                                    </p>
-                                    <p className="text-zinc-400">
-                                      {nextEvent.canDrop
-                                        ? "Counts toward drops"
-                                        : "No drop marker"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Registrations
-                                    </p>
-                                    <p className="mt-1 font-medium text-zinc-100">
-                                      {nextEvent.registrationEnabled
-                                        ? `${nextEvent.registrationCount} driver${nextEvent.registrationCount === 1 ? "" : "s"}`
-                                        : "Disabled"}
-                                    </p>
-                                    <p className="text-zinc-400">
-                                      {nextEvent.isRegisteredByMe
-                                        ? "You are registered"
-                                        : (nextEventRegistrationState?.summaryLabel ??
-                                          "Open for driver sign-up")}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
-                                  {nextEvent.registrationEnabled ? (
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                      <div>
-                                        <p className="text-sm font-medium text-zinc-100">
-                                          {nextEventRegistrationState?.helperText ??
-                                            (nextEvent.isRegisteredByMe
-                                              ? "You are on the grid for this race."
-                                              : "Register now to confirm race attendance.")}
-                                        </p>
-                                        <p className="mt-1 text-xs text-zinc-500">
-                                          {data.canSelfRegister
-                                            ? "Registration updates instantly for this event."
-                                            : isAuthenticated
-                                              ? "Your member profile has not been synced yet, so self-registration is unavailable."
-                                              : "Sign in and join this league to register for races."}
-                                        </p>
-                                      </div>
-                                      <button
-                                        onClick={() =>
-                                          handleRegistrationToggle(
-                                            nextEvent.id,
-                                            nextEvent.isRegisteredByMe,
-                                          )
-                                        }
-                                        disabled={
-                                          isRegistering ||
-                                          !data.canSelfRegister ||
-                                          nextEventRegistrationState?.isClosed
-                                        }
-                                        className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                                          nextEvent.isRegisteredByMe &&
-                                          !nextEventRegistrationState?.isClosed
-                                            ? "border-zinc-700 text-zinc-200 hover:border-red-500/60 hover:text-red-300"
-                                            : nextEventRegistrationState?.isClosed
-                                              ? "border-zinc-800 text-zinc-500"
-                                              : "border-green-700/60 text-green-300 hover:border-green-500"
-                                        }`}
-                                      >
-                                        {nextEventRegistrationState?.isClosed
-                                          ? nextEventRegistrationState.actionLabel
-                                          : isRegistering
-                                            ? "Saving..."
-                                            : nextEvent.isRegisteredByMe
-                                              ? "Unregister"
-                                              : "Register"}
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <p className="text-sm text-zinc-500">
-                                      Registration is disabled for this event.
-                                    </p>
-                                  )}
-
-                                  {registrationError &&
-                                    registeringScheduleId === null && (
-                                      <p className="mt-3 text-xs text-red-400">
-                                        {registrationError}
-                                      </p>
-                                    )}
-                                </div>
-
-                                {data.isAdmin &&
-                                  nextEvent.registeredMembers.length > 0 && (
-                                    <div className="mt-4 rounded-2xl border border-zinc-800 overflow-hidden">
-                                      <div className="bg-zinc-900 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                        Registered Drivers (
-                                        {nextEvent.registeredMembers.length})
-                                      </div>
-                                      <div className="divide-y divide-zinc-800">
-                                        {nextEvent.registeredMembers.map(
-                                          (registration) => (
-                                            <div
-                                              key={registration.id}
-                                              className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
-                                            >
-                                              <div className="min-w-0">
-                                                <p className="truncate text-zinc-100">
-                                                  {
-                                                    registration.member
-                                                      .displayName
-                                                  }
-                                                  {registration.member.carNumber
-                                                    ? ` #${registration.member.carNumber}`
-                                                    : ""}
-                                                  {registration.member.nickName
-                                                    ? ` (${registration.member.nickName})`
-                                                    : ""}
-                                                </p>
-                                              </div>
-                                              <Link
-                                                href={`/app/drivers/${registration.member.custId}?league=${data.league.routeLeagueId}`}
-                                                className="text-xs text-zinc-400 transition-colors hover:text-white"
-                                              >
-                                                Profile
-                                              </Link>
-                                            </div>
-                                          ),
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                              </>
-                            ) : (
-                              <EmptyState
-                                title="No upcoming event"
-                                body="Add or sync a future schedule entry for this series to surface it here."
-                              />
-                            )}
-                          </div>
-
-                          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
-                            <div className="mb-4 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                  Last Race Result
-                                </p>
-                                <h3 className="mt-1 text-lg font-bold text-white">
-                                  {lastRace?.schedule?.raceName ??
-                                    "No posted results yet"}
-                                </h3>
-                              </div>
-                              {lastRace?.winnerName && (
-                                <span className="rounded-full border border-emerald-800/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
-                                  Winner: {lastRace.winnerName}
-                                </span>
-                              )}
-                            </div>
-
-                            {lastRace ? (
-                              <>
-                                <div className="mb-4 grid gap-3 text-sm sm:grid-cols-3">
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Date
-                                    </p>
-                                    <p className="mt-1 text-zinc-100">
-                                      {fmtDate(
-                                        lastRace.schedule?.eventDate ??
-                                          lastRace.launchAt,
-                                      )}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Track
-                                    </p>
-                                    <p className="mt-1 text-zinc-100">
-                                      {lastRace.trackName ?? "Unknown track"}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-                                    <p className="text-xs text-zinc-500">
-                                      Subsession
-                                    </p>
-                                    <p className="mt-1 font-mono text-zinc-300">
-                                      {lastRace.subsessionId ?? "—"}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-                                  <table className="min-w-full text-left text-sm">
-                                    <thead className="bg-zinc-900 text-zinc-400">
-                                      <tr>
-                                        <th className="px-4 py-3 font-medium">
-                                          Pos
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Driver
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Start
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Laps
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Inc
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Pts
-                                        </th>
-                                        <th className="px-4 py-3 font-medium">
-                                          Earn
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
-                                      {lastRace.results.map((result) => (
-                                        <tr
-                                          key={result.id}
-                                          className="hover:bg-zinc-900/60"
-                                        >
-                                          <td className="px-4 py-3 text-zinc-100">
-                                            {result.finishPosition ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-3">
-                                            <Link
-                                              href={`/app/drivers/${result.custId}?league=${data.league.routeLeagueId}`}
-                                              className="text-zinc-100 transition-colors hover:text-white"
-                                            >
-                                              {result.displayName}
-                                            </Link>
-                                            {result.provisional && (
-                                              <span className="ml-2 text-xs text-amber-300">
-                                                Prov
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td className="px-4 py-3 text-zinc-400">
-                                            {result.startPosition ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-3 text-zinc-400">
-                                            {result.lapsCompleted ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-3 text-zinc-400">
-                                            {result.incidents ?? "—"}
-                                          </td>
-                                          <td className="px-4 py-3 font-medium text-zinc-100">
-                                            {fmtPoints(result.finalPoints)}
-                                          </td>
-                                          <td className="px-4 py-3 font-medium text-zinc-200">
-                                            {result.virtualEarnings == null
-                                              ? "—"
-                                              : formatMoney(
-                                                  result.virtualEarnings,
-                                                )}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </>
-                            ) : (
-                              <EmptyState
-                                title="No results posted"
-                                body="Once race results are imported for this series, the latest finishing order will show here."
-                              />
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
-                          <div className="mb-4 flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                Top 10 Standings
+                      {activeSeries.lastRaceResult ? (
+                        <>
+                          <div className="mb-4 grid gap-3 text-sm sm:grid-cols-3">
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                              <p className="text-xs text-zinc-500">Date</p>
+                              <p className="mt-1 text-zinc-100">
+                                {fmtDate(
+                                  activeSeries.lastRaceResult.schedule
+                                    ?.eventDate ??
+                                    activeSeries.lastRaceResult.launchAt,
+                                )}
                               </p>
-                              <h3 className="mt-1 text-lg font-bold text-white">
-                                {series.season?.seasonName ?? "Standings"}
-                              </h3>
                             </div>
-                            <Link
-                              href={`/app/${data.league.routeLeagueId}/standings`}
-                              className="text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
-                            >
-                              Full table →
-                            </Link>
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                              <p className="text-xs text-zinc-500">Track</p>
+                              <p className="mt-1 text-zinc-100">
+                                {activeSeries.lastRaceResult.trackName ??
+                                  "Unknown track"}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                              <p className="text-xs text-zinc-500">
+                                Subsession
+                              </p>
+                              <p className="mt-1 font-mono text-zinc-300">
+                                {activeSeries.lastRaceResult.subsessionId ??
+                                  "—"}
+                              </p>
+                            </div>
                           </div>
 
-                          {series.standings.length > 0 ? (
-                            <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-                              <table className="min-w-full text-left text-sm">
-                                <thead className="bg-zinc-900 text-zinc-400">
-                                  <tr>
-                                    <th className="px-4 py-3 font-medium">
-                                      Rank
-                                    </th>
-                                    <th className="px-4 py-3 font-medium">
-                                      Driver
-                                    </th>
-                                    <th className="px-4 py-3 font-medium">
-                                      Pts
-                                    </th>
-                                    <th className="px-4 py-3 font-medium">
-                                      Gap
-                                    </th>
-                                    <th className="px-4 py-3 font-medium">
-                                      Wins
-                                    </th>
-                                    <th className="px-4 py-3 font-medium">
-                                      Top 5
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
-                                  {series.standings.map((entry, index) => (
+                          <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+                            <table className="min-w-full text-left text-sm">
+                              <thead className="bg-zinc-900 text-zinc-400">
+                                <tr>
+                                  <th className="px-4 py-3 font-medium">Pos</th>
+                                  <th className="px-4 py-3 font-medium">
+                                    Driver
+                                  </th>
+                                  <th className="px-4 py-3 font-medium">
+                                    Start
+                                  </th>
+                                  <th className="px-4 py-3 font-medium">
+                                    Laps
+                                  </th>
+                                  <th className="px-4 py-3 font-medium">Inc</th>
+                                  <th className="px-4 py-3 font-medium">Pts</th>
+                                  <th className="px-4 py-3 font-medium">
+                                    Earn
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
+                                {activeSeries.lastRaceResult.results.map(
+                                  (result) => (
                                     <tr
-                                      key={`${series.id}-${entry.custId}`}
+                                      key={result.id}
                                       className="hover:bg-zinc-900/60"
                                     >
-                                      <td className="px-4 py-3 font-semibold text-zinc-100">
-                                        {index + 1}
+                                      <td className="px-4 py-3 text-zinc-100">
+                                        {result.finishPosition ?? "—"}
                                       </td>
                                       <td className="px-4 py-3">
                                         <Link
-                                          href={`/app/drivers/${entry.custId}?league=${data.league.routeLeagueId}`}
+                                          href={`/app/drivers/${result.custId}?league=${data.league.routeLeagueId}`}
                                           className="text-zinc-100 transition-colors hover:text-white"
                                         >
-                                          {entry.displayName}
+                                          {result.displayName}
                                         </Link>
+                                        {result.provisional && (
+                                          <span className="ml-2 text-xs text-amber-300">
+                                            Prov
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-3 text-zinc-400">
+                                        {result.startPosition ?? "—"}
+                                      </td>
+                                      <td className="px-4 py-3 text-zinc-400">
+                                        {result.lapsCompleted ?? "—"}
+                                      </td>
+                                      <td className="px-4 py-3 text-zinc-400">
+                                        {result.incidents ?? "—"}
                                       </td>
                                       <td className="px-4 py-3 font-medium text-zinc-100">
-                                        {fmtPoints(entry.points)}
+                                        {fmtPoints(result.finalPoints)}
                                       </td>
-                                      <td className="px-4 py-3 text-zinc-400">
-                                        {index === 0
-                                          ? "Leader"
-                                          : fmtPoints(entry.gapToLeader)}
-                                      </td>
-                                      <td className="px-4 py-3 text-zinc-400">
-                                        {entry.wins}
-                                      </td>
-                                      <td className="px-4 py-3 text-zinc-400">
-                                        {entry.top5}
+                                      <td className="px-4 py-3 font-medium text-zinc-200">
+                                        {result.virtualEarnings == null
+                                          ? "—"
+                                          : formatMoney(result.virtualEarnings)}
                                       </td>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <EmptyState
-                              title="No standings yet"
-                              body="Standings will appear here after results are recorded for points-paying events."
-                            />
-                          )}
+                                  ),
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      ) : (
+                        <EmptyState
+                          title="No results posted"
+                          body="Once race results are imported, the latest finishing order appears here."
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {activePanel === "standings" && (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Top 10 Standings
+                          </p>
+                          <h3 className="mt-1 text-lg font-bold text-white">
+                            {activeSeries.season?.seasonName ?? "Standings"}
+                          </h3>
                         </div>
+                        <Link
+                          href={`/app/${data.league.routeLeagueId}/standings`}
+                          className="text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
+                        >
+                          Full table →
+                        </Link>
                       </div>
-                    </section>
-                  );
-                })
-              )}
-            </section>
+
+                      {activeSeries.standings.length > 0 ? (
+                        <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+                          <table className="min-w-full text-left text-sm">
+                            <thead className="bg-zinc-900 text-zinc-400">
+                              <tr>
+                                <th className="px-4 py-3 font-medium">Rank</th>
+                                <th className="px-4 py-3 font-medium">
+                                  Driver
+                                </th>
+                                <th className="px-4 py-3 font-medium">Pts</th>
+                                <th className="px-4 py-3 font-medium">Gap</th>
+                                <th className="px-4 py-3 font-medium">Wins</th>
+                                <th className="px-4 py-3 font-medium">Top 5</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-800 bg-zinc-950/60">
+                              {activeSeries.standings.map((entry, index) => (
+                                <tr
+                                  key={`${activeSeries.id}-${entry.custId}`}
+                                  className="hover:bg-zinc-900/60"
+                                >
+                                  <td className="px-4 py-3 font-semibold text-zinc-100">
+                                    {index + 1}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Link
+                                      href={`/app/drivers/${entry.custId}?league=${data.league.routeLeagueId}`}
+                                      className="text-zinc-100 transition-colors hover:text-white"
+                                    >
+                                      {entry.displayName}
+                                    </Link>
+                                  </td>
+                                  <td className="px-4 py-3 font-medium text-zinc-100">
+                                    {fmtPoints(entry.points)}
+                                  </td>
+                                  <td className="px-4 py-3 text-zinc-400">
+                                    {index === 0
+                                      ? "Leader"
+                                      : fmtPoints(entry.gapToLeader)}
+                                  </td>
+                                  <td className="px-4 py-3 text-zinc-400">
+                                    {entry.wins}
+                                  </td>
+                                  <td className="px-4 py-3 text-zinc-400">
+                                    {entry.top5}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <EmptyState
+                          title="No standings yet"
+                          body="Standings appear after results are recorded for points-paying events."
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </section>
+            ) : null}
           </div>
         ) : null}
       </main>

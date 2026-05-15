@@ -23,6 +23,7 @@ interface UserLeague {
   rosterCount: number | null;
   owner: boolean;
   admin: boolean;
+  pendingJoinRequests: number;
   lastSyncedAt: string;
 }
 
@@ -302,6 +303,14 @@ export default function DashboardPage() {
   );
   const [userCustId, setUserCustId] = useState<number | null>(null);
 
+  const sortedUserLeagues = [...userLeagues].sort((left, right) => {
+    if (right.pendingJoinRequests !== left.pendingJoinRequests) {
+      return right.pendingJoinRequests - left.pendingJoinRequests;
+    }
+
+    return left.leagueName.localeCompare(right.leagueName);
+  });
+
   async function fetchTeamInvitations() {
     try {
       const res = await fetch("/api/teams/invitations", { cache: "no-store" });
@@ -520,7 +529,7 @@ export default function DashboardPage() {
           <div>
             <h2 className="text-lg font-bold mb-4">My Leagues</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {userLeagues.map((league) => (
+              {sortedUserLeagues.map((league) => (
                 <div
                   key={league.id}
                   className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 flex flex-col gap-4"
@@ -544,6 +553,13 @@ export default function DashboardPage() {
                       <p className="font-bold text-sm leading-tight truncate">
                         {league.leagueName}
                       </p>
+                      {(league.owner || league.admin) &&
+                      league.pendingJoinRequests > 0 ? (
+                        <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                          {league.pendingJoinRequests} pending join request
+                          {league.pendingJoinRequests === 1 ? "" : "s"}
+                        </p>
+                      ) : null}
                       <p className="text-xs text-zinc-500 mt-0.5">
                         {league.rosterCount != null
                           ? `${league.rosterCount} members · `
@@ -578,6 +594,17 @@ export default function DashboardPage() {
                         </Link>
                       )}
                     </div>
+                    {(league.owner || league.admin) && (
+                      <Link
+                        href={`/app/${league.routeLeagueId}/admin/join-requests`}
+                        className="w-full text-center rounded-lg border border-amber-700/50 hover:border-amber-600 bg-amber-500/10 hover:bg-amber-500/20 transition-colors px-3 py-1.5 text-xs font-semibold text-amber-300"
+                      >
+                        Join Requests
+                        {league.pendingJoinRequests > 0
+                          ? ` (${league.pendingJoinRequests})`
+                          : ""}
+                      </Link>
+                    )}
                     {userCustId && (
                       <Link
                         href={`/app/drivers/${userCustId}?league=${league.id}`}

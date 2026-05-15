@@ -49,54 +49,67 @@ export async function GET(
     return NextResponse.json({ error: "forbidden" }, { status: auth.status });
   }
 
-  const sessions = await prisma.raceSession.findMany({
-    where: { leagueId, seriesId, seasonId },
-    orderBy: { launchAt: "asc" },
-    include: {
-      schedule: {
-        select: {
-          id: true,
-          raceName: true,
-          eventDate: true,
-          raceOrder: true,
-          pointsCount: true,
-          canDrop: true,
-          stages: true,
+  const [sessions, league] = await Promise.all([
+    prisma.raceSession.findMany({
+      where: { leagueId, seriesId, seasonId },
+      orderBy: { launchAt: "asc" },
+      include: {
+        schedule: {
+          select: {
+            id: true,
+            raceName: true,
+            eventDate: true,
+            raceOrder: true,
+            pointsCount: true,
+            canDrop: true,
+            stages: true,
+            virtualPurse: true,
+            virtualPayoutSplit: true,
+          },
+        },
+        pointsConfig: {
+          select: {
+            id: true,
+            positionPoints: true,
+            bonusPoints: true,
+            allowProvisionals: true,
+          },
+        },
+        results: {
+          orderBy: { finishPosition: "asc" },
+          select: {
+            id: true,
+            custId: true,
+            displayName: true,
+            finishPosition: true,
+            startPosition: true,
+            lapsCompleted: true,
+            incidents: true,
+            provisional: true,
+            pointsBase: true,
+            stageFinishes: true,
+            pointsAdjustment: true,
+            bonusPoints: true,
+            penaltyPoints: true,
+            finalPoints: true,
+            notes: true,
+          },
+        },
+        _count: {
+          select: { results: true },
         },
       },
-      pointsConfig: {
-        select: {
-          id: true,
-          positionPoints: true,
-          bonusPoints: true,
-          allowProvisionals: true,
-        },
-      },
-      results: {
-        orderBy: { finishPosition: "asc" },
-        select: {
-          id: true,
-          custId: true,
-          displayName: true,
-          finishPosition: true,
-          startPosition: true,
-          lapsCompleted: true,
-          incidents: true,
-          provisional: true,
-          pointsBase: true,
-          stageFinishes: true,
-          pointsAdjustment: true,
-          finalPoints: true,
-          notes: true,
-        },
-      },
-      _count: {
-        select: { results: true },
-      },
-    },
-  });
+    }),
+    prisma.league.findUnique({
+      where: { id: leagueId },
+      select: { virtualModeEnabled: true },
+    }),
+  ]);
 
-  return NextResponse.json(sessions);
+  return NextResponse.json({
+    sessions,
+    virtualModeEnabled: league?.virtualModeEnabled ?? false,
+  });
 }
 
 /**

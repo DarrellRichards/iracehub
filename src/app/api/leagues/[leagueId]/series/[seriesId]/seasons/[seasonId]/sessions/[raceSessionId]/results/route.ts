@@ -220,6 +220,13 @@ export async function POST(
     return NextResponse.json({ error: "invalid_cust_id" }, { status: 400 });
   }
 
+  if (!data.displayName?.trim()) {
+    return NextResponse.json(
+      { error: "display_name_required" },
+      { status: 400 },
+    );
+  }
+
   const raceSession = await prisma.raceSession.findFirst({
     where: { id: raceSessionId, leagueId },
     include: {
@@ -264,6 +271,13 @@ export async function POST(
     },
     select: { id: true },
   });
+
+  if (data.provisional && !member) {
+    return NextResponse.json(
+      { error: "provisional_member_must_exist_in_league" },
+      { status: 400 },
+    );
+  }
 
   const result = await prisma.raceSessionResult.upsert({
     where: {
