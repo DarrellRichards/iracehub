@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import Link from "next/image";
+import Link from "next/link";
 
 interface LeagueDetail {
   id: string;
