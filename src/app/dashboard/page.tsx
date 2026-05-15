@@ -16,7 +16,8 @@ interface EligibleLeague {
 
 interface UserLeague {
   id: string;
-  iracingLeagueId: number;
+  iracingLeagueId: number | null;
+  routeLeagueId: string;
   leagueName: string;
   smallLogo: string | null;
   rosterCount: number | null;
@@ -88,6 +89,8 @@ function CreateLeagueModal({ onClose }: CreateLeagueModalProps) {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [creatingLeagueId, setCreatingLeagueId] = useState<number | null>(null);
+  const [customLeagueName, setCustomLeagueName] = useState("");
+  const [creatingCustomLeague, setCreatingCustomLeague] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -152,6 +155,32 @@ function CreateLeagueModal({ onClose }: CreateLeagueModalProps) {
     }
   }
 
+  async function handleCreateCustomLeague() {
+    const leagueName = customLeagueName.trim();
+    if (!leagueName) {
+      setActionError("Please enter a league name.");
+      return;
+    }
+
+    setActionError(null);
+    setCreatingCustomLeague(true);
+    try {
+      const res = await fetch("/api/leagues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueName }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "league_create_failed");
+      setCustomLeagueName("");
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "unknown_error");
+    } finally {
+      setCreatingCustomLeague(false);
+    }
+  }
+
   return (
     <div
       ref={overlayRef}
@@ -175,6 +204,35 @@ function CreateLeagueModal({ onClose }: CreateLeagueModalProps) {
 
         {/* Body */}
         <div className="px-6 py-5 max-h-[60vh] overflow-y-auto">
+          <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
+              Create Without iRacing
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Use this if your league does not exist on iRacing yet. You can
+              link an iRacing league ID later from the admin page.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={customLeagueName}
+                onChange={(e) => setCustomLeagueName(e.target.value)}
+                placeholder="League name"
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500"
+              />
+              <button
+                onClick={() => void handleCreateCustomLeague()}
+                disabled={creatingCustomLeague}
+                className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed hover:border-zinc-500 transition-colors"
+              >
+                {creatingCustomLeague ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+            Create From iRacing Memberships
+          </p>
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-7 w-7 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
@@ -496,19 +554,24 @@ export default function DashboardPage() {
                         Last synced from iRacing:{" "}
                         {new Date(league.lastSyncedAt).toLocaleString()}
                       </p>
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        {league.iracingLeagueId != null
+                          ? `iRacing League ID: ${league.iracingLeagueId}`
+                          : "iRacing: Not linked yet"}
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-2 mt-auto flex-col">
                     <div className="flex gap-2">
                       <Link
-                        href={`/app/${league.iracingLeagueId}`}
+                        href={`/app/${league.routeLeagueId}`}
                         className="flex-1 text-center rounded-lg border border-zinc-700 hover:border-zinc-500 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
                       >
                         View League
                       </Link>
                       {(league.owner || league.admin) && (
                         <Link
-                          href={`/app/${league.iracingLeagueId}/admin`}
+                          href={`/app/${league.routeLeagueId}/admin`}
                           className="flex-1 text-center rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors px-3 py-1.5 text-xs font-semibold text-zinc-200"
                         >
                           Admin

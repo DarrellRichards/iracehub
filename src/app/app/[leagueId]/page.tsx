@@ -104,7 +104,8 @@ interface SeriesCard {
 interface LandingPayload {
   league: {
     id: string;
-    iracingLeagueId: number;
+    iracingLeagueId: number | null;
+    routeLeagueId: string;
     leagueName: string;
     smallLogo: string | null;
     largeLogo: string | null;
@@ -457,7 +458,9 @@ export default function LeaguePage() {
 
                     <div className="mt-5 flex flex-wrap gap-3 text-sm text-zinc-300">
                       <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
-                        iRacing League ID: {data.league.iracingLeagueId}
+                        {data.league.iracingLeagueId != null
+                          ? `iRacing League ID: ${data.league.iracingLeagueId}`
+                          : "iRacing League: Not linked yet"}
                       </span>
                       <span className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2">
                         {stats.memberCount} Members
@@ -475,7 +478,7 @@ export default function LeaguePage() {
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                   {isAuthenticated && (
                     <Link
-                      href={`/app/${data.league.iracingLeagueId}/teams`}
+                      href={`/app/${data.league.routeLeagueId}/teams`}
                       className="rounded-2xl border border-red-800/50 bg-red-500/10 p-5 text-left transition-colors hover:border-red-700"
                     >
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">
@@ -491,7 +494,7 @@ export default function LeaguePage() {
                     </Link>
                   )}
                   <Link
-                    href={`/app/${data.league.iracingLeagueId}/calendar`}
+                    href={`/app/${data.league.routeLeagueId}/calendar`}
                     className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700"
                   >
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -506,7 +509,7 @@ export default function LeaguePage() {
                     </p>
                   </Link>
                   <Link
-                    href={`/app/${data.league.iracingLeagueId}/standings`}
+                    href={`/app/${data.league.routeLeagueId}/standings`}
                     className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700"
                   >
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -522,7 +525,7 @@ export default function LeaguePage() {
                   </Link>
                   {data.isAdmin && (
                     <Link
-                      href={`/app/${data.league.iracingLeagueId}/admin`}
+                      href={`/app/${data.league.routeLeagueId}/admin`}
                       className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700 sm:col-span-2 lg:col-span-1"
                     >
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -617,7 +620,7 @@ export default function LeaguePage() {
                     </div>
                     <div className="flex flex-wrap gap-3">
                       <Link
-                        href={`/app/${data.league.iracingLeagueId}/calendar?series=${featuredNextRace.seriesId}`}
+                        href={`/app/${data.league.routeLeagueId}/calendar?series=${featuredNextRace.seriesId}`}
                         className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-500 hover:text-white"
                       >
                         Open Schedule
@@ -707,7 +710,7 @@ export default function LeaguePage() {
                               {series.standings.length} in standings
                             </span>
                             <Link
-                              href={`/app/${data.league.iracingLeagueId}/calendar?series=${series.id}`}
+                              href={`/app/${data.league.routeLeagueId}/calendar?series=${series.id}`}
                               className="rounded-full border border-zinc-700 bg-zinc-950/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                             >
                               Full schedule & results →
@@ -886,7 +889,7 @@ export default function LeaguePage() {
                                                 </p>
                                               </div>
                                               <Link
-                                                href={`/app/drivers/${registration.member.custId}?league=${data.league.iracingLeagueId}`}
+                                                href={`/app/drivers/${registration.member.custId}?league=${data.league.routeLeagueId}`}
                                                 className="text-xs text-zinc-400 transition-colors hover:text-white"
                                               >
                                                 Profile
@@ -994,7 +997,7 @@ export default function LeaguePage() {
                                           </td>
                                           <td className="px-4 py-3">
                                             <Link
-                                              href={`/app/drivers/${result.custId}?league=${data.league.iracingLeagueId}`}
+                                              href={`/app/drivers/${result.custId}?league=${data.league.routeLeagueId}`}
                                               className="text-zinc-100 transition-colors hover:text-white"
                                             >
                                               {result.displayName}
@@ -1050,7 +1053,7 @@ export default function LeaguePage() {
                               </h3>
                             </div>
                             <Link
-                              href={`/app/${data.league.iracingLeagueId}/standings`}
+                              href={`/app/${data.league.routeLeagueId}/standings`}
                               className="text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
                             >
                               Full table →
@@ -1093,7 +1096,7 @@ export default function LeaguePage() {
                                       </td>
                                       <td className="px-4 py-3">
                                         <Link
-                                          href={`/app/drivers/${entry.custId}?league=${data.league.iracingLeagueId}`}
+                                          href={`/app/drivers/${entry.custId}?league=${data.league.routeLeagueId}`}
                                           className="text-zinc-100 transition-colors hover:text-white"
                                         >
                                           {entry.displayName}

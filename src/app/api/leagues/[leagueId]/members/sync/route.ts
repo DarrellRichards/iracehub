@@ -76,6 +76,16 @@ export async function POST(
       return NextResponse.json({ error: "League not found" }, { status: 404 });
     }
 
+    if (!Number.isInteger(league.iracingLeagueId)) {
+      return NextResponse.json(
+        {
+          error:
+            "League is not linked to an iRacing league yet. Link it first, then sync members.",
+        },
+        { status: 400 },
+      );
+    }
+
     // Fetch members from iRacing API
     const leagueData = await fetchIracingLinkedJson<{
       roster?: IracingMember[];
