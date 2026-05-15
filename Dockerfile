@@ -27,7 +27,8 @@ ENV NODE_ENV=production
 ENV PORT=2300
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
-RUN npm install -g prisma@7.8.0
+RUN npm install -g prisma@7.8.0 tsx@4.21.0
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
