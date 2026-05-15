@@ -199,7 +199,7 @@ export async function GET(
     string,
     {
       leagueId: string;
-      iracingLeagueId: number;
+      iracingLeagueId: number | null;
       leagueName: string;
       starts: number;
       wins: number;
