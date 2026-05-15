@@ -270,14 +270,24 @@ export default async function HomePage({
               code, contribute improvements, or run it yourself, visit the
               project repository.
             </p>
-            <a
-              href="https://github.com/DarrellRichards/iracehub"
-              target="_blank"
-              rel="noreferrer"
-              className="mt-6 inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:border-red-500 hover:text-white"
-            >
-              View the GitHub Repository
-            </a>
+            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <a
+                href="https://github.com/DarrellRichards/iracehub"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:border-red-500 hover:text-white"
+              >
+                View the GitHub Repository
+              </a>
+              <a
+                href="https://discord.gg/GgWWRxTBK8"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 transition-colors hover:border-red-500 hover:text-white"
+              >
+                Join Discord
+              </a>
+            </div>
           </div>
         </section>
 
