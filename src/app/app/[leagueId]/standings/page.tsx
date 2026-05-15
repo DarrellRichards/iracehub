@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/components/AuthProvider";
 
 interface StandingEntry {
   custId: number;
@@ -111,8 +110,6 @@ function StandingTable({
 }
 
 export default function LeagueStandingsPage() {
-  const { session, loading: authLoading } = useAuth();
-  const router = useRouter();
   const params = useParams<{ leagueId: string }>();
 
   const [data, setData] = useState<StandingsResponse | null>(null);
@@ -121,14 +118,6 @@ export default function LeagueStandingsPage() {
   const [openSeriesIds, setOpenSeriesIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!authLoading && !session?.authenticated) {
-      router.replace("/");
-    }
-  }, [authLoading, session, router]);
-
-  useEffect(() => {
-    if (!session?.authenticated) return;
-
     let cancelled = false;
     async function run() {
       setLoading(true);
@@ -162,17 +151,15 @@ export default function LeagueStandingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.leagueId, session?.authenticated]);
+  }, [params.leagueId]);
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="h-8 w-8 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
       </div>
     );
   }
-
-  if (!session?.authenticated) return null;
 
   const bySeries = (data?.bySeriesSeason ?? []).reduce<
     Record<

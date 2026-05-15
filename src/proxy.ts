@@ -10,11 +10,17 @@ function isNearExpiry(tokenExpiresAt: string | undefined) {
   return ts <= Date.now() + EXPIRY_BUFFER_MS;
 }
 
+function isPublicLeagueViewPath(pathname: string) {
+  return /^\/app\/[^/]+(\/(?:standings|calendar))?\/?$/.test(pathname);
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const isProtected = PROTECTED_PATHS.some((p) => pathname.startsWith(p));
-  if (!isProtected) return NextResponse.next();
+  if (!isProtected || isPublicLeagueViewPath(pathname)) {
+    return NextResponse.next();
+  }
 
   const accessToken = request.cookies.get("irh_access_token")?.value;
   const refreshToken = request.cookies.get("irh_refresh_token")?.value;

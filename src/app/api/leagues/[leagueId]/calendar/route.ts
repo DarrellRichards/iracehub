@@ -10,9 +10,6 @@ export async function GET(
     const { leagueId: rawLeagueId } = await params;
 
     const accessToken = request.cookies.get("irh_access_token")?.value;
-    if (!accessToken) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
 
     // leagueId may be either the DB id or the iRacing numeric league ID
     const iracingLeagueIdNum = parseInt(rawLeagueId, 10);
@@ -32,34 +29,42 @@ export async function GET(
 
     const leagueDbId = league.id;
 
-    const iracingCustId = getIracingCustIdFromJwt(accessToken);
-    const user = await prisma.user.findUnique({
-      where: { iracingCustId },
-      select: { id: true, iracingCustId: true },
-    });
-    if (!user) {
-      return NextResponse.json({ error: "user_not_found" }, { status: 404 });
+    let isAdmin = false;
+    let member: { id: string } | null = null;
+
+    if (accessToken) {
+      try {
+        const iracingCustId = getIracingCustIdFromJwt(accessToken);
+        const user = await prisma.user.findUnique({
+          where: { iracingCustId },
+          select: { id: true, iracingCustId: true },
+        });
+
+        if (user) {
+          const membership = await prisma.leagueMembership.findUnique({
+            where: {
+              userId_leagueId: { userId: user.id, leagueId: leagueDbId },
+            },
+            select: { owner: true, admin: true },
+          });
+
+          if (membership) {
+            isAdmin = membership.owner || membership.admin;
+            member = await prisma.member.findUnique({
+              where: {
+                leagueId_custId: {
+                  leagueId: leagueDbId,
+                  custId: user.iracingCustId,
+                },
+              },
+              select: { id: true },
+            });
+          }
+        }
+      } catch {
+        // ignore auth errors — serve public data
+      }
     }
-
-    const membership = await prisma.leagueMembership.findUnique({
-      where: { userId_leagueId: { userId: user.id, leagueId: leagueDbId } },
-      select: { owner: true, admin: true },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
-    }
-
-    const isAdmin = membership.owner || membership.admin;
-
-    const member = await prisma.member.findUnique({
-      where: {
-        leagueId_custId: {
-          leagueId: leagueDbId,
-          custId: user.iracingCustId,
-        },
-      },
-      select: { id: true },
-    });
 
     const series = await prisma.series.findMany({
       where: { leagueId: leagueDbId },

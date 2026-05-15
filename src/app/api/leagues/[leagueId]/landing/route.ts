@@ -161,10 +161,6 @@ export async function GET(
     const { leagueId: rawLeagueId } = await params;
     const accessToken = request.cookies.get("irh_access_token")?.value;
 
-    if (!accessToken) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
     const iracingLeagueIdNum = parseInt(rawLeagueId, 10);
     const league = Number.isNaN(iracingLeagueIdNum)
       ? await prisma.league.findUnique({
@@ -202,37 +198,54 @@ export async function GET(
       return NextResponse.json({ error: "league_not_found" }, { status: 404 });
     }
 
-    const iracingCustId = getIracingCustIdFromJwt(accessToken);
-    const user = await prisma.user.findUnique({
-      where: { iracingCustId },
-      select: { id: true, iracingCustId: true },
-    });
+    let authUser:
+      | {
+          id: string;
+          iracingCustId: number;
+        }
+      | null = null;
+    let membership:
+      | {
+          owner: boolean;
+          admin: boolean;
+        }
+      | null = null;
 
-    if (!user) {
-      return NextResponse.json({ error: "user_not_found" }, { status: 404 });
+    if (accessToken) {
+      try {
+        const iracingCustId = getIracingCustIdFromJwt(accessToken);
+        authUser = await prisma.user.findUnique({
+          where: { iracingCustId },
+          select: { id: true, iracingCustId: true },
+        });
+
+        if (authUser) {
+          membership = await prisma.leagueMembership.findUnique({
+            where: {
+              userId_leagueId: { userId: authUser.id, leagueId: league.id },
+            },
+            select: { owner: true, admin: true },
+          });
+        }
+      } catch (authError) {
+        console.warn("[league landing route] failed to resolve auth", authError);
+      }
     }
 
-    const membership = await prisma.leagueMembership.findUnique({
-      where: { userId_leagueId: { userId: user.id, leagueId: league.id } },
-      select: { owner: true, admin: true },
-    });
-
-    if (!membership) {
-      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
-    }
-
-    const isAdmin = membership.owner || membership.admin;
+    const isAdmin = Boolean(membership?.owner || membership?.admin);
 
     const [currentMember, series] = await Promise.all([
-      prisma.member.findUnique({
-        where: {
-          leagueId_custId: {
-            leagueId: league.id,
-            custId: user.iracingCustId,
-          },
-        },
-        select: { id: true, displayName: true },
-      }),
+      authUser
+        ? prisma.member.findUnique({
+            where: {
+              leagueId_custId: {
+                leagueId: league.id,
+                custId: authUser.iracingCustId,
+              },
+            },
+            select: { id: true, displayName: true },
+          })
+        : Promise.resolve(null),
       prisma.series.findMany({
         where: { leagueId: league.id, isActive: true },
         orderBy: { name: "asc" },
@@ -455,7 +468,7 @@ export async function GET(
     return NextResponse.json({
       league,
       isAdmin,
-      canSelfRegister: Boolean(currentMember),
+      canSelfRegister: Boolean(membership && currentMember),
       series: seriesCards,
     });
   } catch (error) {

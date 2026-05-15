@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { formatMoney } from "@/lib/money";
@@ -226,7 +226,6 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 
 export default function LeaguePage() {
   const { session, loading: authLoading, logout } = useAuth();
-  const router = useRouter();
   const params = useParams<{ leagueId: string }>();
 
   const [data, setData] = useState<LandingPayload | null>(null);
@@ -239,15 +238,7 @@ export default function LeaguePage() {
     null,
   );
 
-  useEffect(() => {
-    if (!authLoading && !session?.authenticated) {
-      router.replace("/");
-    }
-  }, [authLoading, router, session]);
-
   const loadLanding = useCallback(async () => {
-    if (!session?.authenticated) return;
-
     try {
       const landingRes = await fetch(
         `/api/leagues/${params.leagueId}/landing`,
@@ -272,15 +263,13 @@ export default function LeaguePage() {
     } finally {
       setLoading(false);
     }
-  }, [params.leagueId, session?.authenticated]);
+  }, [params.leagueId]);
 
   useEffect(() => {
-    if (!session?.authenticated) return;
-
     queueMicrotask(() => {
       void loadLanding();
     });
-  }, [loadLanding, session?.authenticated]);
+  }, [loadLanding]);
 
   async function handleRegistrationToggle(
     scheduleId: string,
@@ -369,31 +358,40 @@ export default function LeaguePage() {
     );
   }
 
-  if (!session?.authenticated) return null;
+  const isAuthenticated = Boolean(session?.authenticated);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <header className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <Link
-            href="/dashboard"
+            href={isAuthenticated ? "/dashboard" : "/"}
             className="text-xl font-black tracking-tight transition-opacity hover:opacity-80"
           >
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
             <Link
-              href="/dashboard"
+              href={isAuthenticated ? "/dashboard" : "/"}
               className="text-sm text-zinc-400 transition-colors hover:text-white"
             >
-              ← Dashboard
+              {isAuthenticated ? "← Dashboard" : "← Home"}
             </Link>
-            <button
-              onClick={logout}
-              className="rounded-lg border border-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-            >
-              Sign out
-            </button>
+            {isAuthenticated ? (
+              <button
+                onClick={logout}
+                className="rounded-lg border border-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+              >
+                Sign out
+              </button>
+            ) : (
+              <Link
+                href="/"
+                className="rounded-lg border border-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+              >
+                Sign in
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -403,10 +401,10 @@ export default function LeaguePage() {
           <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-8 text-center">
             <p className="text-sm text-red-400">{error}</p>
             <Link
-              href="/dashboard"
+              href={isAuthenticated ? "/dashboard" : "/"}
               className="mt-4 inline-block text-sm text-zinc-400 hover:text-white"
             >
-              ← Back to Dashboard
+              {isAuthenticated ? "← Back to Dashboard" : "← Back Home"}
             </Link>
           </div>
         ) : data ? (
@@ -475,21 +473,23 @@ export default function LeaguePage() {
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-                  <Link
-                    href={`/app/${data.league.iracingLeagueId}/teams`}
-                    className="rounded-2xl border border-red-800/50 bg-red-500/10 p-5 text-left transition-colors hover:border-red-700"
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">
-                      Team
-                    </p>
-                    <h2 className="mt-2 text-lg font-bold text-white">
-                      Teams & Drivers
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-300">
-                      View all teams with driver car numbers and create your own
-                      team.
-                    </p>
-                  </Link>
+                  {isAuthenticated && (
+                    <Link
+                      href={`/app/${data.league.iracingLeagueId}/teams`}
+                      className="rounded-2xl border border-red-800/50 bg-red-500/10 p-5 text-left transition-colors hover:border-red-700"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">
+                        Team
+                      </p>
+                      <h2 className="mt-2 text-lg font-bold text-white">
+                        Teams & Drivers
+                      </h2>
+                      <p className="mt-1 text-sm text-zinc-300">
+                        View all teams with driver car numbers and create your
+                        own team.
+                      </p>
+                    </Link>
+                  )}
                   <Link
                     href={`/app/${data.league.iracingLeagueId}/calendar`}
                     className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 transition-colors hover:border-zinc-700"
@@ -808,7 +808,9 @@ export default function LeaguePage() {
                                         <p className="mt-1 text-xs text-zinc-500">
                                           {data.canSelfRegister
                                             ? "Registration updates instantly for this event."
-                                            : "Your member profile has not been synced yet, so self-registration is unavailable."}
+                                            : isAuthenticated
+                                              ? "Your member profile has not been synced yet, so self-registration is unavailable."
+                                              : "Sign in and join this league to register for races."}
                                         </p>
                                       </div>
                                       <button
