@@ -196,7 +196,7 @@ This repo supports production deployment via Docker with either Nginx or Caddy a
 - Linux server or VPS
 - Docker and Docker Compose
 - reachable public DNS if using HTTPS with Caddy
-- PostgreSQL database
+- PostgreSQL database (compose-managed by default in this repo)
 
 Recommended minimum:
 
@@ -215,6 +215,9 @@ cp .env.production.example .env.production
 Required variables:
 
 - `DATABASE_URL`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
 - `IRACING_CLIENT_SECRET`
 - `NEXT_PUBLIC_APP_URL` (must match your public HTTPS URL)
 
@@ -225,11 +228,17 @@ Optional:
 Example:
 
 ```env
-DATABASE_URL=postgresql://user:password@db-host:5432/iracehub
+DATABASE_URL=postgresql://iracehub:replace_me@postgres:5432/iracehub
+POSTGRES_DB=iracehub
+POSTGRES_USER=iracehub
+POSTGRES_PASSWORD=replace_me
 IRACING_CLIENT_ID=your-client-id
 IRACING_CLIENT_SECRET=your-client-secret
 NEXT_PUBLIC_APP_URL=https://iracehub.yourdomain.com
 ```
+
+`DATABASE_URL` host must be reachable from inside the `app` container. For the compose-managed DB, use `postgres` as the host.
+If using external Postgres, replace `DATABASE_URL` with your external host details.
 
 ### 2) Build and run locally with Docker only
 
