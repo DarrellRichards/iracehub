@@ -4,6 +4,7 @@ iRaceHub is a production-ready league management platform for iRacing communitie
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-red.svg)](https://github.com/DarrellRichards/iracehub)
+[![codecov](https://codecov.io/github/DarrellRichards/iracehub/graph/badge.svg?token=BZ5H9CJJ91)](https://codecov.io/github/DarrellRichards/iracehub)
 
 It includes:
 
