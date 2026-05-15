@@ -115,6 +115,16 @@ export async function POST(
       return NextResponse.json({ error: "series_not_found" }, { status: 404 });
     }
 
+    if (!Number.isInteger(series.league.iracingLeagueId)) {
+      return NextResponse.json(
+        {
+          error:
+            "League is not linked to an iRacing league yet. Link it first, then sync seasons.",
+        },
+        { status: 400 },
+      );
+    }
+
     const leagueSeasonsData = await fetchIracingLinkedJson<{
       seasons?: Array<{
         league_id: number;

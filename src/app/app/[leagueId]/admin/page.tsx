@@ -13,7 +13,8 @@ import {
 
 interface LeagueDetail {
   id: string;
-  iracingLeagueId: number;
+  iracingLeagueId: number | null;
+  routeLeagueId: string;
   leagueName: string;
   smallLogo: string | null;
   rosterCount: number | null;
@@ -244,6 +245,8 @@ export default function LeagueAdminPage() {
     null,
   );
   const [showVirtualMoneyModal, setShowVirtualMoneyModal] = useState(false);
+  const [pendingIracingLeagueId, setPendingIracingLeagueId] = useState("");
+  const [linkingIracingLeague, setLinkingIracingLeague] = useState(false);
 
   // Results management
   // Schedule management
@@ -277,7 +280,10 @@ export default function LeagueAdminPage() {
 
         const found =
           data.leagues?.find(
-            (l) => String(l.iracingLeagueId) === params.leagueId,
+            (l) =>
+              l.id === params.leagueId ||
+              l.routeLeagueId === params.leagueId ||
+              String(l.iracingLeagueId) === params.leagueId,
           ) ?? null;
 
         if (!found) {
@@ -822,7 +828,7 @@ export default function LeagueAdminPage() {
   const widgetOrigin =
     typeof window === "undefined" ? "" : window.location.origin;
 
-  const widgetLeagueId = league ? String(league.iracingLeagueId) : "";
+  const widgetLeagueId = league ? league.routeLeagueId : "";
   const widgetQueryParams = new URLSearchParams({
     standingsLimit: String(standingsLimit),
     scheduleLimit: String(scheduleLimit),
@@ -889,6 +895,60 @@ export default function LeagueAdminPage() {
     }
   };
 
+  const handleLinkIracingLeague = async () => {
+    if (!league) return;
+
+    const parsedLeagueId = Number.parseInt(pendingIracingLeagueId, 10);
+    if (!Number.isInteger(parsedLeagueId) || parsedLeagueId <= 0) {
+      alert("Enter a valid iRacing league ID.");
+      return;
+    }
+
+    setLinkingIracingLeague(true);
+    try {
+      const response = await fetch(`/api/leagues/${league.id}/iracing-link`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ iracingLeagueId: parsedLeagueId }),
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(
+          response,
+          "failed_to_link_iracing_league",
+        );
+        throw new Error(message);
+      }
+
+      const linkedLeague = (await readJsonSafely<{
+        iracingLeagueId: number | null;
+        routeLeagueId: string;
+        leagueName: string;
+      }>(response)) ?? {
+        iracingLeagueId: parsedLeagueId,
+        routeLeagueId: String(parsedLeagueId),
+        leagueName: league.leagueName,
+      };
+
+      setLeague((prev) =>
+        prev
+          ? {
+              ...prev,
+              iracingLeagueId: linkedLeague.iracingLeagueId,
+              routeLeagueId: linkedLeague.routeLeagueId,
+              leagueName: linkedLeague.leagueName,
+            }
+          : prev,
+      );
+      setPendingIracingLeagueId("");
+      alert("League linked to iRacing successfully.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "failed_to_link_iracing");
+    } finally {
+      setLinkingIracingLeague(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -944,7 +1004,7 @@ export default function LeagueAdminPage() {
           <div className="flex items-center gap-3">
             {league && (
               <Link
-                href={`/app/${league.iracingLeagueId}`}
+                href={`/app/${league.routeLeagueId}`}
                 className="text-sm text-zinc-400 hover:text-white transition-colors"
               >
                 ← League View
@@ -1004,7 +1064,9 @@ export default function LeagueAdminPage() {
                   {league.leagueName}
                 </h1>
                 <p className="text-zinc-400 text-sm">
-                  iRacing League ID: {league.iracingLeagueId}
+                  {league.iracingLeagueId != null
+                    ? `iRacing League ID: ${league.iracingLeagueId}`
+                    : "iRacing League: Not linked yet"}
                   {league.rosterCount != null
                     ? ` · ${league.rosterCount} members`
                     : ""}
@@ -1017,6 +1079,33 @@ export default function LeagueAdminPage() {
                 </p>
               </div>
             </div>
+
+            {league.iracingLeagueId == null && (
+              <div className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+                <h2 className="text-lg font-bold">Link to iRacing League</h2>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Once your league exists on iRacing, enter the iRacing league
+                  ID here to enable member and season sync.
+                </p>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="number"
+                    min="1"
+                    value={pendingIracingLeagueId}
+                    onChange={(e) => setPendingIracingLeagueId(e.target.value)}
+                    placeholder="iRacing League ID"
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 sm:max-w-xs"
+                  />
+                  <button
+                    onClick={() => void handleLinkIracingLeague()}
+                    disabled={linkingIracingLeague}
+                    className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 transition-colors hover:border-zinc-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {linkingIracingLeague ? "Linking…" : "Link League"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="mb-12 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
               <div className="flex items-start justify-between gap-4">
@@ -1253,11 +1342,20 @@ export default function LeagueAdminPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => setSyncModalSeries(s)}
+                              disabled={
+                                syncingSeriesId === s.id ||
+                                league.iracingLeagueId == null
+                              }
                               className="text-xs px-2.5 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white transition-colors disabled:opacity-60"
                             >
+                              {league.iracingLeagueId == null
+                                ? "Link iRacing First"
+                                : null}
                               {syncingSeriesId === s.id
                                 ? "Syncing..."
-                                : "Sync from iRacing"}
+                                : league.iracingLeagueId == null
+                                  ? ""
+                                  : "Sync from iRacing"}
                             </button>
                             <button
                               onClick={() => setSeasonModalSeries(s)}
@@ -1271,8 +1369,10 @@ export default function LeagueAdminPage() {
                         {(seasonsBySeries[s.id] ?? []).length === 0 ? (
                           <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 text-center">
                             <p className="text-xs text-zinc-500">
-                              No seasons yet. Create a custom one or sync from
-                              iRacing.
+                              No seasons yet. Create a custom one
+                              {league.iracingLeagueId == null
+                                ? ". Link an iRacing league ID above to enable syncing."
+                                : " or sync from iRacing."}
                             </p>
                           </div>
                         ) : (
@@ -1961,7 +2061,7 @@ export default function LeagueAdminPage() {
                 );
               })()}
 
-            {syncModalSeries && league && (
+            {syncModalSeries && league && league.iracingLeagueId != null && (
               <SyncSeasonsModal
                 leagueIracingId={league.iracingLeagueId}
                 seriesName={syncModalSeries.name}

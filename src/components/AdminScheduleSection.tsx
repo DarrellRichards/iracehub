@@ -152,11 +152,13 @@ function ImportPanel({
   seasonId: string;
   raceSessionId: string;
   subsessionId: number | null;
-  iracingLeagueId: number;
+  iracingLeagueId: number | null;
   iracingSeasonId: number | null;
   onSuccess: () => void;
 }) {
-  const [tab, setTab] = useState<ImportTab>("iracing");
+  const [tab, setTab] = useState<ImportTab>(
+    iracingLeagueId != null ? "iracing" : "file",
+  );
   const [iracingSessions, setIracingSessions] = useState<IracingSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectedSubsessionId, setSelectedSubsessionId] = useState(
@@ -169,7 +171,8 @@ function ImportPanel({
   const baseUrl = `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions/${raceSessionId}/results/import`;
 
   useEffect(() => {
-    if (tab !== "iracing" || !iracingSeasonId) return;
+    if (tab !== "iracing" || !iracingSeasonId || iracingLeagueId == null)
+      return;
     let cancelled = false;
     async function run() {
       setLoadingSessions(true);
@@ -265,7 +268,10 @@ function ImportPanel({
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-zinc-800 rounded-lg p-1 w-fit">
-        {(["iracing", "file"] as ImportTab[]).map((t) => (
+        {(iracingLeagueId != null
+          ? (["iracing", "file"] as ImportTab[])
+          : (["file"] as ImportTab[])
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -401,7 +407,7 @@ function ScheduleEventRow({
 }: {
   schedule: AdminSchedule;
   leagueId: string;
-  iracingLeagueId: number;
+  iracingLeagueId: number | null;
   seriesId: string;
   seasonId: string;
   iracingSeasonId: number | null;
@@ -719,7 +725,7 @@ function ScheduleEventRow({
                           : ""}
                       </span>
                       <Link
-                        href={`/app/drivers/${registration.member.custId}?league=${iracingLeagueId}`}
+                        href={`/app/drivers/${registration.member.custId}?league=${leagueId}`}
                         className="text-xs text-zinc-400 hover:text-white transition-colors"
                       >
                         Profile
@@ -807,7 +813,7 @@ function ScheduleEventRow({
                           </td>
                           <td className="py-1.5 pr-3 text-zinc-200">
                             <Link
-                              href={`/app/drivers/${r.custId}?league=${iracingLeagueId}`}
+                              href={`/app/drivers/${r.custId}?league=${leagueId}`}
                               className="hover:text-red-400 transition-colors"
                             >
                               {r.displayName}
@@ -1310,7 +1316,7 @@ function AddProvisionalModal({
 
 interface AdminScheduleSectionProps {
   leagueId: string;
-  iracingLeagueId: number;
+  iracingLeagueId: number | null;
   seriesId: string;
   season: { id: string; seasonName: string; iracingSeasonId: number | null };
   schedules: AdminSchedule[];

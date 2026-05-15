@@ -198,18 +198,14 @@ export async function GET(
       return NextResponse.json({ error: "league_not_found" }, { status: 404 });
     }
 
-    let authUser:
-      | {
-          id: string;
-          iracingCustId: number;
-        }
-      | null = null;
-    let membership:
-      | {
-          owner: boolean;
-          admin: boolean;
-        }
-      | null = null;
+    let authUser: {
+      id: string;
+      iracingCustId: number;
+    } | null = null;
+    let membership: {
+      owner: boolean;
+      admin: boolean;
+    } | null = null;
 
     if (accessToken) {
       try {
@@ -228,7 +224,10 @@ export async function GET(
           });
         }
       } catch (authError) {
-        console.warn("[league landing route] failed to resolve auth", authError);
+        console.warn(
+          "[league landing route] failed to resolve auth",
+          authError,
+        );
       }
     }
 
@@ -466,7 +465,12 @@ export async function GET(
     );
 
     return NextResponse.json({
-      league,
+      league: {
+        ...league,
+        routeLeagueId: league.iracingLeagueId
+          ? String(league.iracingLeagueId)
+          : league.id,
+      },
       isAdmin,
       canSelfRegister: Boolean(membership && currentMember),
       series: seriesCards,
