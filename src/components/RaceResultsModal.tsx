@@ -17,6 +17,8 @@ interface ScheduleSummary {
   pointsCount: boolean;
   canDrop: boolean;
   stages: Array<{ stageNumber: number; endLap: number }>;
+  virtualPurse: number;
+  virtualPayoutSplit: number[];
 }
 
 interface Result {
@@ -29,11 +31,11 @@ interface Result {
   lapsCompleted: number | null;
   incidents: number | null;
   provisional: boolean;
-  pointsBase: number;
-  pointsAdjustment: number;
-  bonusPoints: number;
-  penaltyPoints: number;
-  finalPoints: number;
+  pointsBase: number | null;
+  pointsAdjustment: number | null;
+  bonusPoints: number | null;
+  penaltyPoints: number | null;
+  finalPoints: number | null;
   notes: string | null;
 }
 
@@ -55,6 +57,28 @@ interface RaceResultsModalProps {
   seriesId: string;
   season: { id: string; seasonName: string };
   onClose: () => void;
+}
+
+interface LeagueMember {
+  id: string;
+  custId: number;
+  displayName: string;
+}
+
+function formatMoney(cents: number): string {
+  if (cents >= 100)
+    return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${cents}¢`;
+}
+
+function getEarnings(
+  finishPosition: number | null,
+  payoutSplit: number[],
+): number | null {
+  if (finishPosition == null || finishPosition < 1) return null;
+  const idx = finishPosition - 1;
+  if (idx >= payoutSplit.length) return 0;
+  return payoutSplit[idx] ?? 0;
 }
 
 type ImportSource = "iracing" | "json" | "csv";
@@ -79,6 +103,44 @@ function ImportPanel({
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Subsession lookup state
+  const [lookupResult, setLookupResult] = useState<{
+    id: string;
+    trackName: string | null;
+    hasResults: boolean;
+    schedule: {
+      raceName: string;
+      season: { seasonName: string; series: { name: string } };
+    } | null;
+  } | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const checkSubsession = useCallback(
+    (value: string) => {
+      if (lookupTimer.current) clearTimeout(lookupTimer.current);
+      setLookupResult(null);
+      const id = parseInt(value, 10);
+      if (isNaN(id) || id <= 0) return;
+
+      lookupTimer.current = setTimeout(async () => {
+        setLookupLoading(true);
+        try {
+          const res = await fetch(
+            `/api/leagues/${leagueId}/sessions/lookup?subsessionId=${id}`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as { match: typeof lookupResult };
+            setLookupResult(data.match);
+          }
+        } finally {
+          setLookupLoading(false);
+        }
+      }, 400);
+    },
+    [leagueId],
+  );
 
   const handleImport = async () => {
     setImporting(true);
@@ -171,16 +233,54 @@ function ImportPanel({
             <label className="block text-xs text-zinc-400 mb-1">
               Subsession ID
             </label>
-            <input
-              type="number"
-              value={subsessionId}
-              onChange={(e) => setSubsessionId(e.target.value)}
-              placeholder="e.g. 10127258"
-              className="w-full rounded bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
-            />
+            <div className="relative">
+              <input
+                type="number"
+                value={subsessionId}
+                onChange={(e) => {
+                  setSubsessionId(e.target.value);
+                  checkSubsession(e.target.value);
+                }}
+                placeholder="e.g. 10127258"
+                className="w-full rounded bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+              />
+              {lookupLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="h-3.5 w-3.5 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
+
+      {/* Existing session match warning */}
+      {source === "iracing" &&
+        lookupResult &&
+        (() => {
+          const isThisSession = lookupResult.id === raceSession.id;
+          const name = lookupResult.schedule
+            ? `${lookupResult.schedule.season.series.name} – ${lookupResult.schedule.season.seasonName} – ${lookupResult.schedule.raceName}`
+            : (lookupResult.trackName ?? `Session ${subsessionId}`);
+          return (
+            <div
+              className={`mt-3 rounded-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
+                isThisSession
+                  ? "bg-blue-950/40 border border-blue-800/50 text-blue-300"
+                  : "bg-yellow-950/40 border border-yellow-700/50 text-yellow-300"
+              }`}
+            >
+              <span className="mt-0.5 shrink-0">
+                {isThisSession ? "ℹ️" : "⚠️"}
+              </span>
+              <span>
+                {isThisSession
+                  ? `Subsession ${subsessionId} is already linked to this session.${lookupResult.hasResults ? " Results exist — importing will overwrite them." : ""}`
+                  : `Subsession ${subsessionId} was already imported for: ${name}.${lookupResult.hasResults ? " It has results." : ""} Importing here will create a duplicate.`}
+              </span>
+            </div>
+          );
+        })()}
 
       {(source === "json" || source === "csv") && (
         <div>
@@ -221,6 +321,8 @@ function EditableResult({
   seriesId,
   seasonId,
   raceSessionId,
+  virtualModeEnabled,
+  payoutSplit,
   onUpdated,
   onDeleted,
 }: {
@@ -229,6 +331,8 @@ function EditableResult({
   seriesId: string;
   seasonId: string;
   raceSessionId: string;
+  virtualModeEnabled: boolean;
+  payoutSplit: number[];
   onUpdated: () => void;
   onDeleted: () => void;
 }) {
@@ -241,9 +345,9 @@ function EditableResult({
     lapsCompleted: result.lapsCompleted?.toString() ?? "",
     incidents: result.incidents?.toString() ?? "",
     provisional: result.provisional,
-    pointsAdjustment: result.pointsAdjustment.toString(),
-    bonusPoints: result.bonusPoints.toString(),
-    penaltyPoints: result.penaltyPoints.toString(),
+    pointsAdjustment: (result.pointsAdjustment ?? 0).toString(),
+    bonusPoints: (result.bonusPoints ?? 0).toString(),
+    penaltyPoints: (result.penaltyPoints ?? 0).toString(),
     notes: result.notes ?? "",
   });
 
@@ -317,23 +421,36 @@ function EditableResult({
         <span className="text-xs text-zinc-500 w-14 text-right">
           Inc: {result.incidents ?? "—"}
         </span>
-        {(result.bonusPoints > 0 || result.penaltyPoints > 0) && (
+        {virtualModeEnabled &&
+          (() => {
+            const earned = getEarnings(result.finishPosition, payoutSplit);
+            return (
+              <span className="text-xs w-20 text-right font-medium">
+                {earned != null && earned > 0 ? (
+                  <span className="text-yellow-400">{formatMoney(earned)}</span>
+                ) : earned === 0 ? (
+                  <span className="text-zinc-600">—</span>
+                ) : null}
+              </span>
+            );
+          })()}
+        {((result.bonusPoints ?? 0) > 0 || (result.penaltyPoints ?? 0) > 0) && (
           <span className="text-xs text-zinc-400 w-20 text-right">
-            {result.bonusPoints > 0 && (
+            {(result.bonusPoints ?? 0) > 0 && (
               <span className="text-green-400">
-                +{result.bonusPoints.toFixed(1)}
+                +{(result.bonusPoints ?? 0).toFixed(1)}
               </span>
             )}
-            {result.penaltyPoints > 0 && (
+            {(result.penaltyPoints ?? 0) > 0 && (
               <span className="text-red-400">
                 {" "}
-                -{result.penaltyPoints.toFixed(1)}
+                -{(result.penaltyPoints ?? 0).toFixed(1)}
               </span>
             )}
           </span>
         )}
         <span className="text-xs text-zinc-300 w-16 text-right font-medium">
-          {result.finalPoints.toFixed(1)} pts
+          {(result.finalPoints ?? 0).toFixed(1)} pts
         </span>
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
@@ -502,20 +619,213 @@ function EditableResult({
   );
 }
 
+function AddProvisionalPanel({
+  leagueId,
+  seriesId,
+  seasonId,
+  raceSession,
+  onSuccess,
+}: {
+  leagueId: string;
+  seriesId: string;
+  seasonId: string;
+  raceSession: RaceSession;
+  onSuccess: () => void;
+}) {
+  const [members, setMembers] = useState<LeagueMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+  const [selectedCustId, setSelectedCustId] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMembers() {
+      setLoadingMembers(true);
+      setError(null);
+
+      try {
+        const res = await fetch(`/api/leagues/${leagueId}/members`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Failed to load league members.");
+
+        const data = (await res.json()) as Array<{
+          id: string;
+          custId: number;
+          displayName: string;
+        }>;
+
+        if (!cancelled) {
+          setMembers(
+            Array.isArray(data)
+              ? data.map((member) => ({
+                  id: member.id,
+                  custId: member.custId,
+                  displayName: member.displayName,
+                }))
+              : [],
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load league members.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingMembers(false);
+        }
+      }
+    }
+
+    loadMembers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueId]);
+
+  const existingCustIds = new Set(
+    raceSession.results.map((result) => result.custId),
+  );
+  const availableMembers = members.filter(
+    (member) => !existingCustIds.has(member.custId),
+  );
+
+  const handleAddProvisional = async () => {
+    setError(null);
+
+    const custId = parseInt(selectedCustId, 10);
+    if (!Number.isInteger(custId) || custId <= 0) {
+      setError("Select a league driver to add as a provisional.");
+      return;
+    }
+
+    const selectedMember = availableMembers.find(
+      (member) => member.custId === custId,
+    );
+    if (!selectedMember) {
+      setError("That driver is already in the results or is unavailable.");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const res = await fetch(
+        `/api/leagues/${leagueId}/series/${seriesId}/seasons/${seasonId}/sessions/${raceSession.id}/results`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            custId: selectedMember.custId,
+            displayName: selectedMember.displayName,
+            provisional: true,
+            notes: note.trim() || undefined,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string; message?: string };
+        throw new Error(
+          data.message ?? data.error ?? "Failed to add provisional.",
+        );
+      }
+
+      setSelectedCustId("");
+      setNote("");
+      onSuccess();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to add provisional.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-yellow-800/50 bg-yellow-950/20 p-4 mb-4">
+      <h4 className="text-sm font-semibold text-yellow-200 mb-3">
+        Add Provisional
+      </h4>
+
+      {loadingMembers ? (
+        <div className="text-xs text-zinc-400">Loading league drivers…</div>
+      ) : availableMembers.length === 0 ? (
+        <div className="text-xs text-zinc-400">
+          Every league driver is already in these results.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Driver</label>
+            <select
+              value={selectedCustId}
+              onChange={(e) => setSelectedCustId(e.target.value)}
+              className="w-full rounded bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500"
+            >
+              <option value="">Select a league driver</option>
+              {availableMembers.map((member) => (
+                <option key={member.id} value={member.custId}>
+                  {member.displayName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Note</label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Optional admin note"
+              className="w-full rounded bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex justify-end">
+            <button
+              onClick={handleAddProvisional}
+              disabled={saving || !selectedCustId}
+              className="px-4 py-2 rounded bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Adding..." : "Add Provisional"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SessionResultsPanel({
   session,
   leagueId,
   seriesId,
   seasonId,
+  virtualModeEnabled,
   onRefresh,
 }: {
   session: RaceSession;
   leagueId: string;
   seriesId: string;
   seasonId: string;
+  virtualModeEnabled: boolean;
   onRefresh: () => void;
 }) {
   const [showImport, setShowImport] = useState(false);
+  const [showAddProvisional, setShowAddProvisional] = useState(false);
 
   const results = session.results;
 
@@ -552,6 +862,14 @@ function SessionResultsPanel({
               {results.length} results
             </span>
           )}
+          {session.pointsConfig?.allowProvisionals && (
+            <button
+              onClick={() => setShowAddProvisional((v) => !v)}
+              className="text-xs px-3 py-1.5 rounded border border-yellow-700/50 text-yellow-300 hover:border-yellow-500 hover:text-yellow-200 transition-colors"
+            >
+              {showAddProvisional ? "Hide Provisional" : "Add Provisional"}
+            </button>
+          )}
           <button
             onClick={() => setShowImport((v) => !v)}
             className="text-xs px-3 py-1.5 rounded border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white transition-colors"
@@ -576,6 +894,21 @@ function SessionResultsPanel({
         </div>
       )}
 
+      {showAddProvisional && session.pointsConfig?.allowProvisionals && (
+        <div className="px-4 pt-4">
+          <AddProvisionalPanel
+            leagueId={leagueId}
+            seriesId={seriesId}
+            seasonId={seasonId}
+            raceSession={session}
+            onSuccess={() => {
+              setShowAddProvisional(false);
+              onRefresh();
+            }}
+          />
+        </div>
+      )}
+
       {/* Results list */}
       {results.length === 0 ? (
         <div className="px-4 py-6 text-center">
@@ -591,6 +924,9 @@ function SessionResultsPanel({
             <span className="flex-1">Driver</span>
             <span className="w-16 text-right">Laps</span>
             <span className="w-14 text-right">Inc</span>
+            {virtualModeEnabled && (
+              <span className="w-20 text-right">Earned</span>
+            )}
             <span className="w-16 text-right">Points</span>
             <span className="w-16" />
           </div>
@@ -606,6 +942,12 @@ function SessionResultsPanel({
                 seriesId={seriesId}
                 seasonId={seasonId}
                 raceSessionId={session.id}
+                virtualModeEnabled={virtualModeEnabled}
+                payoutSplit={
+                  Array.isArray(session.schedule?.virtualPayoutSplit)
+                    ? (session.schedule.virtualPayoutSplit as number[])
+                    : []
+                }
                 onUpdated={onRefresh}
                 onDeleted={() => onRefresh()}
               />
@@ -623,6 +965,7 @@ export function RaceResultsModal({
   onClose,
 }: RaceResultsModalProps) {
   const [sessions, setSessions] = useState<RaceSession[]>([]);
+  const [virtualModeEnabled, setVirtualModeEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -641,7 +984,14 @@ export function RaceResultsModal({
           { cache: "no-store" },
         );
         if (!res.ok) throw new Error("failed_to_load_sessions");
-        if (!cancelled) setSessions((await res.json()) as RaceSession[]);
+        const data = (await res.json()) as {
+          sessions: RaceSession[];
+          virtualModeEnabled: boolean;
+        };
+        if (!cancelled) {
+          setSessions(data.sessions ?? []);
+          setVirtualModeEnabled(data.virtualModeEnabled ?? false);
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "error");
       } finally {
@@ -705,6 +1055,7 @@ export function RaceResultsModal({
                   leagueId={leagueId}
                   seriesId={seriesId}
                   seasonId={season.id}
+                  virtualModeEnabled={virtualModeEnabled}
                   onRefresh={refresh}
                 />
               ))}

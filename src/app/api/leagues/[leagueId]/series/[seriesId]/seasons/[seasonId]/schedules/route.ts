@@ -5,12 +5,15 @@ import { Prisma } from "@prisma/client";
 
 interface ScheduleRequest {
   eventDate: string;
+  roomOpenAt?: string;
   raceName: string;
   isOffWeek: boolean;
   pointsCount: boolean;
   canDrop: boolean;
   registrationEnabled?: boolean;
   trackName?: string;
+  trackConfigName?: string;
+  trackCategory?: string;
   trackId?: number;
   raceLength?: string;
   virtualPurse?: number;
@@ -216,6 +219,32 @@ export async function POST(
 
     // Create the schedule
     const stages = normalizeStages(data.stages);
+    const weatherPayload = {
+      ...(data.weather ?? {}),
+      roomOpenAt:
+        data.roomOpenAt ??
+        (data.weather as { roomOpenAt?: string } | undefined)?.roomOpenAt ??
+        null,
+      raceStartAt: data.eventDate,
+      track: data.trackId
+        ? {
+            id: data.trackId,
+            name: data.trackName ?? null,
+            configName: data.trackConfigName ?? null,
+            category: data.trackCategory ?? null,
+          }
+        : null,
+    };
+
+    const latestSchedule = await prisma.schedule.findFirst({
+      where: { seasonId },
+      orderBy: { raceOrder: "desc" },
+      select: { raceOrder: true },
+    });
+
+    const trackDisplayName = data.trackName
+      ? [data.trackName, data.trackConfigName].filter(Boolean).join(" · ")
+      : null;
 
     const schedule = await prisma.schedule.create({
       data: {
@@ -227,7 +256,7 @@ export async function POST(
         pointsCount: data.pointsCount,
         canDrop: data.canDrop,
         registrationEnabled: data.registrationEnabled ?? true,
-        trackName: data.trackName,
+        trackName: trackDisplayName,
         trackId: data.trackId,
         raceLength: data.raceLength,
         virtualPurse:
@@ -243,8 +272,8 @@ export async function POST(
           data.virtualPayoutSplit,
         ) as Prisma.InputJsonValue,
         stages: stages as Prisma.InputJsonValue,
-        weather: data.weather as Prisma.InputJsonValue,
-        raceOrder: data.raceOrder,
+        weather: weatherPayload as Prisma.InputJsonValue,
+        raceOrder: data.raceOrder ?? (latestSchedule?.raceOrder ?? 0) + 1,
       },
     });
 

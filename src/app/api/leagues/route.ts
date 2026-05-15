@@ -42,6 +42,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "user_not_found" }, { status: 404 });
     }
 
+    const adminLeagueIds = user.leagueMemberships
+      .filter((membership) => membership.owner || membership.admin)
+      .map((membership) => membership.league.id);
+
+    const pendingCounts =
+      adminLeagueIds.length > 0
+        ? await prisma.leagueJoinRequest.groupBy({
+            by: ["leagueId"],
+            where: {
+              leagueId: { in: adminLeagueIds },
+              status: "PENDING",
+            },
+            _count: {
+              _all: true,
+            },
+          })
+        : [];
+
+    const pendingCountByLeagueId = new Map(
+      pendingCounts.map((entry) => [entry.leagueId, entry._count._all]),
+    );
+
     const leagues = user.leagueMemberships.map((m) => ({
       id: m.league.id,
       iracingLeagueId: m.league.iracingLeagueId,
@@ -53,6 +75,8 @@ export async function GET(request: NextRequest) {
       rosterCount: m.league.rosterCount,
       owner: m.owner,
       admin: m.admin,
+      pendingJoinRequests:
+        m.owner || m.admin ? (pendingCountByLeagueId.get(m.league.id) ?? 0) : 0,
       lastSyncedAt: m.lastSyncedAt,
     }));
 

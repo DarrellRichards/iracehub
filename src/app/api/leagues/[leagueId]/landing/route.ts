@@ -174,6 +174,18 @@ export async function GET(
             rosterCount: true,
             about: true,
             message: true,
+            recruitingOpen: true,
+            recruitingSeries: {
+              select: {
+                series: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: { series: { name: "asc" } },
+            },
             virtualModeEnabled: true,
             virtualEntryFee: true,
           },
@@ -189,6 +201,18 @@ export async function GET(
             rosterCount: true,
             about: true,
             message: true,
+            recruitingOpen: true,
+            recruitingSeries: {
+              select: {
+                series: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: { series: { name: "asc" } },
+            },
             virtualModeEnabled: true,
             virtualEntryFee: true,
           },
@@ -201,6 +225,8 @@ export async function GET(
     let authUser: {
       id: string;
       iracingCustId: number;
+      displayName: string | null;
+      country: string | null;
     } | null = null;
     let membership: {
       owner: boolean;
@@ -212,7 +238,12 @@ export async function GET(
         const iracingCustId = getIracingCustIdFromJwt(accessToken);
         authUser = await prisma.user.findUnique({
           where: { iracingCustId },
-          select: { id: true, iracingCustId: true },
+          select: {
+            id: true,
+            iracingCustId: true,
+            displayName: true,
+            country: true,
+          },
         });
 
         if (authUser) {
@@ -233,7 +264,7 @@ export async function GET(
 
     const isAdmin = Boolean(membership?.owner || membership?.admin);
 
-    const [currentMember, series] = await Promise.all([
+    const [currentMember, currentJoinRequest, series] = await Promise.all([
       authUser
         ? prisma.member.findUnique({
             where: {
@@ -243,6 +274,30 @@ export async function GET(
               },
             },
             select: { id: true, displayName: true },
+          })
+        : Promise.resolve(null),
+      authUser
+        ? prisma.leagueJoinRequest.findFirst({
+            where: {
+              leagueId: league.id,
+              requesterUserId: authUser.id,
+              status: "PENDING",
+            },
+            select: {
+              id: true,
+              status: true,
+              createdAt: true,
+              requestedSeries: {
+                select: {
+                  series: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
           })
         : Promise.resolve(null),
       prisma.series.findMany({
@@ -321,6 +376,9 @@ export async function GET(
                 raceLength: true,
                 raceOrder: true,
                 iracingSessionId: true,
+                weather: true,
+                roomOpenTime: true,
+                greenFlagTime: true,
                 importedSession: {
                   select: {
                     id: true,
@@ -466,13 +524,42 @@ export async function GET(
 
     return NextResponse.json({
       league: {
-        ...league,
+        id: league.id,
+        iracingLeagueId: league.iracingLeagueId,
+        leagueName: league.leagueName,
+        smallLogo: league.smallLogo,
+        largeLogo: league.largeLogo,
+        rosterCount: league.rosterCount,
+        about: league.about,
+        message: league.message,
         routeLeagueId: league.iracingLeagueId
           ? String(league.iracingLeagueId)
           : league.id,
+        recruiting: {
+          open: league.recruitingOpen,
+          series: league.recruitingSeries.map((entry) => entry.series),
+        },
       },
       isAdmin,
       canSelfRegister: Boolean(membership && currentMember),
+      isLeagueMember: Boolean(currentMember),
+      viewer: authUser
+        ? {
+            iracingCustId: authUser.iracingCustId,
+            displayName: authUser.displayName,
+            country: authUser.country,
+          }
+        : null,
+      currentJoinRequest: currentJoinRequest
+        ? {
+            id: currentJoinRequest.id,
+            status: currentJoinRequest.status,
+            createdAt: currentJoinRequest.createdAt,
+            requestedSeries: currentJoinRequest.requestedSeries.map(
+              (entry) => entry.series,
+            ),
+          }
+        : null,
       series: seriesCards,
     });
   } catch (error) {
