@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 import {
   useCallback,
   useEffect,
@@ -407,6 +408,7 @@ export default function LeaguePage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            {isAuthenticated && <DriverSearchBar />}
             <Link
               href={isAuthenticated ? "/dashboard" : "/"}
               className="text-sm text-zinc-400 transition-colors hover:text-white"

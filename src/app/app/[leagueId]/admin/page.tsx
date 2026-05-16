@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 
 interface LeagueDetail {
   id: string;
@@ -160,6 +161,7 @@ export default function LeagueAdminPage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
             {league && (
               <Link
                 href={`/app/${league.routeLeagueId}`}

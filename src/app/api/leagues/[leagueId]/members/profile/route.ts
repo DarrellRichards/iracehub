@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
+import { fetchMemberProfileFromIracing } from "@/lib/auth/iracing";
 import { prisma } from "@/lib/prisma";
 
 async function getLeagueMemberContext(request: NextRequest, leagueId: string) {
@@ -62,43 +63,49 @@ export async function GET(
       return NextResponse.json({ error: "invalid_cust_id" }, { status: 400 });
     }
 
-    const [leagueSettings, targetMember, viewerMember] = await Promise.all([
-      prisma.league.findUnique({
-        where: { id: leagueId },
-        select: {
-          id: true,
-          virtualModeEnabled: true,
-          virtualStartingMoney: true,
-        },
-      }),
-      prisma.member.findUnique({
-        where: {
-          leagueId_custId: {
-            leagueId,
-            custId: targetCustId,
+    const [leagueSettings, targetMember, viewerMember, targetUser] =
+      await Promise.all([
+        prisma.league.findUnique({
+          where: { id: leagueId },
+          select: {
+            id: true,
+            virtualModeEnabled: true,
+            virtualStartingMoney: true,
           },
-        },
-        select: {
-          id: true,
-          custId: true,
-          displayName: true,
-          profileHeadline: true,
-          profileBio: true,
-          carNumber: true,
-          nickName: true,
-          earnedVirtual: true,
-        },
-      }),
-      prisma.member.findUnique({
-        where: {
-          leagueId_custId: {
-            leagueId,
-            custId: context.user.iracingCustId,
+        }),
+        prisma.member.findUnique({
+          where: {
+            leagueId_custId: {
+              leagueId,
+              custId: targetCustId,
+            },
           },
-        },
-        select: { id: true, custId: true },
-      }),
-    ]);
+          select: {
+            id: true,
+            custId: true,
+            displayName: true,
+            profileHeadline: true,
+            profileBio: true,
+            carNumber: true,
+            nickName: true,
+            lastSyncedAt: true,
+            earnedVirtual: true,
+          },
+        }),
+        prisma.member.findUnique({
+          where: {
+            leagueId_custId: {
+              leagueId,
+              custId: context.user.iracingCustId,
+            },
+          },
+          select: { id: true, custId: true },
+        }),
+        prisma.user.findUnique({
+          where: { iracingCustId: targetCustId },
+          select: { country: true },
+        }),
+      ]);
 
     if (!leagueSettings) {
       return NextResponse.json({ error: "league_not_found" }, { status: 404 });
@@ -166,10 +173,12 @@ export async function GET(
         id: targetMember.id,
         custId: targetMember.custId,
         displayName: targetMember.displayName,
+        country: targetUser?.country ?? null,
         carNumber: targetMember.carNumber,
         nickName: targetMember.nickName,
         profileHeadline: targetMember.profileHeadline,
         profileBio: targetMember.profileBio,
+        lastSyncedAt: targetMember.lastSyncedAt,
       },
       virtualMoney: {
         raceCount,
@@ -183,6 +192,72 @@ export async function GET(
     });
   } catch (error) {
     console.error("[members.profile.get]", error);
+    return NextResponse.json(
+      { error: "internal_server_error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ leagueId: string }> },
+) {
+  const { leagueId } = await params;
+
+  try {
+    const context = await getLeagueMemberContext(request, leagueId);
+    if ("error" in context) {
+      return context.error;
+    }
+
+    const accessToken = request.cookies.get("irh_access_token")?.value;
+    if (!accessToken) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const profile = await fetchMemberProfileFromIracing(accessToken);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: context.user.id },
+        data: {
+          displayName: profile.displayName,
+          country: profile.country,
+          memberSince: profile.memberSince,
+        },
+      });
+
+      return tx.member.update({
+        where: {
+          leagueId_custId: {
+            leagueId,
+            custId: context.user.iracingCustId,
+          },
+        },
+        data: {
+          displayName: profile.displayName ?? undefined,
+          lastSyncedAt: new Date(),
+        },
+        select: {
+          id: true,
+          custId: true,
+          displayName: true,
+          profileHeadline: true,
+          profileBio: true,
+          lastSyncedAt: true,
+        },
+      });
+    });
+
+    return NextResponse.json({
+      profile: {
+        ...updated,
+        country: profile.country,
+      },
+    });
+  } catch (error) {
+    console.error("[members.profile.post]", error);
     return NextResponse.json(
       { error: "internal_server_error" },
       { status: 500 },
