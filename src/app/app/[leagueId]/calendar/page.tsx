@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -956,7 +957,7 @@ function EventCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const { session: authSession } = useAuth();
+  useAuth();
   const searchParams = useSearchParams();
   const params = useParams<{ leagueId: string }>();
 
@@ -1050,6 +1051,7 @@ export default function CalendarPage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
             <Link
               href={`/app/${params.leagueId}`}
               className="text-sm text-zinc-400 hover:text-white transition-colors"

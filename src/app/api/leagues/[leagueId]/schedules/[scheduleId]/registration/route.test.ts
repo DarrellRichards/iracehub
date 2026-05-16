@@ -117,7 +117,7 @@ describe("registration route", () => {
 
   describe("GET", () => {
     it("returns 401 when token is missing", async () => {
-      const response = await GET(buildRequest(""), { params });
+      const response = (await GET(buildRequest(""), { params }))!;
       expect(response.status).toBe(401);
       await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
     });
@@ -130,7 +130,7 @@ describe("registration route", () => {
       });
       mocks.prisma.leagueMembership.findUnique.mockResolvedValue(null);
 
-      const response = await GET(buildRequest(), { params });
+      const response = (await GET(buildRequest(), { params }))!;
 
       expect(response.status).toBe(403);
       await expect(response.json()).resolves.toEqual({ error: "not_a_member" });
@@ -153,7 +153,7 @@ describe("registration route", () => {
         },
       ]);
 
-      const response = await GET(buildRequest(), { params });
+      const response = (await GET(buildRequest(), { params }))!;
       const payload = (await response.json()) as {
         isRegistered: boolean;
         registrationCount: number;
@@ -183,7 +183,7 @@ describe("registration route", () => {
         },
       ]);
 
-      const response = await GET(buildRequest(), { params });
+      const response = (await GET(buildRequest(), { params }))!;
       const payload = (await response.json()) as {
         registrations?: Array<{ id: string }>;
       };
@@ -198,7 +198,7 @@ describe("registration route", () => {
     it("returns 409 when registration is disabled", async () => {
       mockBaseContext({ registrationEnabled: false });
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       expect(response.status).toBe(409);
       await expect(response.json()).resolves.toMatchObject({
         error: "registration_disabled",
@@ -210,7 +210,7 @@ describe("registration route", () => {
         eventDate: new Date(Date.now() - 1000 * 60).toISOString(),
       });
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       expect(response.status).toBe(409);
       await expect(response.json()).resolves.toMatchObject({
         error: "event_passed",
@@ -221,7 +221,7 @@ describe("registration route", () => {
       mockBaseContext();
       mocks.prisma.league.findUnique.mockResolvedValue(null);
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({
         error: "league_not_found",
@@ -234,18 +234,19 @@ describe("registration route", () => {
         virtualModeEnabled: false,
         virtualStartingMoney: 100,
       });
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { create: vi.fn() },
-          virtualMoneyEvent: { aggregate: vi.fn(), create: vi.fn() },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { create: vi.fn() },
+            virtualMoneyEvent: { aggregate: vi.fn(), create: vi.fn() },
+          }),
       );
       mocks.prisma.eventRegistration.count.mockResolvedValue(3);
       mocks.prisma.virtualMoneyEvent.aggregate.mockResolvedValue({
         _sum: { amount: 5 },
       });
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       const payload = (await response.json()) as {
         success: boolean;
         isRegistered: boolean;
@@ -271,17 +272,18 @@ describe("registration route", () => {
       const txLedgerAggregate = vi
         .fn()
         .mockResolvedValue({ _sum: { amount: 0 } });
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { create: vi.fn() },
-          virtualMoneyEvent: {
-            aggregate: txLedgerAggregate,
-            create: txEventCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { create: vi.fn() },
+            virtualMoneyEvent: {
+              aggregate: txLedgerAggregate,
+              create: txEventCreate,
+            },
+          }),
       );
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
 
       expect(response.status).toBe(409);
       await expect(response.json()).resolves.toMatchObject({
@@ -302,7 +304,7 @@ describe("registration route", () => {
         _sum: { amount: 20 },
       });
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
         success: true,
@@ -320,7 +322,7 @@ describe("registration route", () => {
       });
       mocks.prisma.$transaction.mockRejectedValue(new Error("boom"));
 
-      const response = await POST(buildRequest(), { params });
+      const response = (await POST(buildRequest(), { params }))!;
       expect(response.status).toBe(500);
       await expect(response.json()).resolves.toEqual({
         error: "internal_server_error",
@@ -332,7 +334,7 @@ describe("registration route", () => {
     it("returns 409 when results are posted", async () => {
       mockBaseContext({ hasResults: true });
 
-      const response = await DELETE(buildRequest(), { params });
+      const response = (await DELETE(buildRequest(), { params }))!;
       expect(response.status).toBe(409);
       await expect(response.json()).resolves.toMatchObject({
         error: "registration_closed_results_posted",
@@ -343,7 +345,7 @@ describe("registration route", () => {
       mockBaseContext();
       mocks.prisma.league.findUnique.mockResolvedValue(null);
 
-      const response = await DELETE(buildRequest(), { params });
+      const response = (await DELETE(buildRequest(), { params }))!;
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({
         error: "league_not_found",
@@ -364,14 +366,15 @@ describe("registration route", () => {
         .mockResolvedValueOnce({ _sum: { amount: -10 } });
       const txCreate = vi.fn();
 
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { deleteMany: txDeleteMany },
-          virtualMoneyEvent: {
-            aggregate: txAggregate,
-            create: txCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { deleteMany: txDeleteMany },
+            virtualMoneyEvent: {
+              aggregate: txAggregate,
+              create: txCreate,
+            },
+          }),
       );
 
       mocks.prisma.eventRegistration.count.mockResolvedValue(1);
@@ -379,7 +382,7 @@ describe("registration route", () => {
         _sum: { amount: 0 },
       });
 
-      const response = await DELETE(buildRequest(), { params });
+      const response = (await DELETE(buildRequest(), { params }))!;
       const payload = (await response.json()) as {
         success: boolean;
         isRegistered: boolean;
@@ -399,16 +402,17 @@ describe("registration route", () => {
       });
 
       const txCreate = vi.fn();
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: {
-            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-          },
-          virtualMoneyEvent: {
-            aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
-            create: txCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: {
+              deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+            virtualMoneyEvent: {
+              aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+              create: txCreate,
+            },
+          }),
       );
 
       mocks.prisma.eventRegistration.count.mockResolvedValue(0);
@@ -416,7 +420,7 @@ describe("registration route", () => {
         _sum: { amount: 0 },
       });
 
-      const response = await DELETE(buildRequest(), { params });
+      const response = (await DELETE(buildRequest(), { params }))!;
 
       expect(response.status).toBe(200);
       expect(txCreate).not.toHaveBeenCalled();

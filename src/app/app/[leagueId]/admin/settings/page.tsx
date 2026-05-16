@@ -39,8 +39,6 @@ interface RecruitingSettingsPayload {
   openSeries: Array<{ id: string; name: string }>;
 }
 
-const VIRTUAL_PAYOUT_SLOTS = 60;
-
 export default function AdminSettingsPage() {
   const { session, loading: authLoading, logout } = useAuth();
   const router = useRouter();

@@ -38,12 +38,11 @@ export default function AdminWidgetsPage() {
   const [widgetCompactMode, setWidgetCompactMode] = useState(false);
   const [widgetTextColor, setWidgetTextColor] = useState("#111827");
   const [widgetBorderColor, setWidgetBorderColor] = useState("#e5e7eb");
-  const [widgetTargetSelector, setWidgetTargetSelector] =
-    useState("#irh-widget");
+  const [widgetTargetSelector] = useState("#irh-widget");
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [standingsLimitInput, setStandingsLimitInput] = useState(10);
   const [scheduleLimitInput, setScheduleLimitInput] = useState(12);
-  const [resultsLimitInput, setResultsLimitInput] = useState(20);
+  const [resultsLimitInput] = useState(20);
 
   useEffect(() => {
     if (!authLoading && !session?.authenticated) {
@@ -150,9 +149,7 @@ export default function AdminWidgetsPage() {
   });
   const widgetQuery = widgetQueryParams.toString();
 
-  const feedPath = `/api/widgets/leagues/${widgetLeagueId}?${widgetQuery}`;
   const embedPath = `/api/widgets/leagues/${widgetLeagueId}/embed?${widgetQuery}`;
-  const feedUrl = widgetOrigin ? `${widgetOrigin}${feedPath}` : feedPath;
   const embedUrl = widgetOrigin ? `${widgetOrigin}${embedPath}` : embedPath;
 
   const getEmbedCodeForView = (
@@ -256,8 +253,8 @@ export default function AdminWidgetsPage() {
             <div className="mb-8">
               <h2 className="text-3xl font-bold mb-2">League Widgets</h2>
               <p className="text-zinc-400">
-                Generate embeddable widgets to display your league's schedule,
-                standings, and race results on any website.
+                Generate embeddable widgets to display your league&apos;s
+                schedule, standings, and race results on any website.
               </p>
             </div>
 

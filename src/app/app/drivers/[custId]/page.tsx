@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { formatMoney } from "@/lib/money";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 
 interface DriverSummary {
   starts: number;
@@ -157,10 +158,12 @@ interface LeagueMemberProfileResponse {
     id: string;
     custId: number;
     displayName: string;
+    country: string | null;
     carNumber: string | null;
     nickName: string | null;
     profileHeadline: string | null;
     profileBio: string | null;
+    lastSyncedAt: string;
   };
   virtualMoney: {
     raceCount: number;
@@ -338,6 +341,8 @@ export default function DriverProfilePage() {
     null,
   );
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileResyncing, setProfileResyncing] = useState(false);
+  const [viewerCustId, setViewerCustId] = useState<number | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [leagueMembers, setLeagueMembers] = useState<
@@ -443,9 +448,40 @@ export default function DriverProfilePage() {
   }, [fromLeagueId, params.custId, reloadToken, session?.authenticated]);
 
   useEffect(() => {
-    if (!session?.authenticated || !fromLeagueId) {
-      setLeagueMembers([]);
+    if (!session?.authenticated) {
       return;
+    }
+
+    let cancelled = false;
+
+    async function loadViewer() {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const payload = await readJsonSafely<{ custId?: number }>(res);
+
+        if (!cancelled && res.ok && payload?.custId) {
+          setViewerCustId(payload.custId);
+        }
+      } catch {
+        if (!cancelled) {
+          setViewerCustId(null);
+        }
+      }
+    }
+
+    void loadViewer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.authenticated]);
+
+  useEffect(() => {
+    if (!session?.authenticated || !fromLeagueId) {
+      const timer = setTimeout(() => {
+        setLeagueMembers([]);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     let cancelled = false;
@@ -486,6 +522,10 @@ export default function DriverProfilePage() {
       teamData && data && teamData.viewer.custId === data.driver.custId,
     );
   }, [data, teamData]);
+
+  const isViewingOwnDriverProfile = useMemo(() => {
+    return Boolean(data && viewerCustId === data.driver.custId);
+  }, [data, viewerCustId]);
 
   const viewedDriverTeam = teamData?.targetMember?.teamMembership?.team ?? null;
   const alreadyInvitedViewedDriver = Boolean(
@@ -642,6 +682,34 @@ export default function DriverProfilePage() {
     }
   }
 
+  async function handleResyncLeagueProfile() {
+    if (!fromLeagueId || !leagueProfile?.canEdit) return;
+
+    setProfileResyncing(true);
+    setProfileSaveStatus(null);
+    try {
+      const res = await fetch(`/api/leagues/${fromLeagueId}/members/profile`, {
+        method: "POST",
+      });
+
+      const payload = await readJsonSafely<{ error?: string }>(res);
+      if (!res.ok) {
+        throw new Error(
+          payload?.error ?? `profile_resync_failed_${res.status}`,
+        );
+      }
+
+      setProfileSaveStatus("Profile synced from iRacing.");
+      setReloadToken((token) => token + 1);
+    } catch (err) {
+      setProfileSaveStatus(
+        err instanceof Error ? err.message : "profile_resync_failed",
+      );
+    } finally {
+      setProfileResyncing(false);
+    }
+  }
+
   async function handleCreateTeam() {
     if (!fromLeagueId || !newTeamName.trim()) return;
 
@@ -755,6 +823,15 @@ export default function DriverProfilePage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
+            {isViewingOwnDriverProfile && data?.leagues.length ? (
+              <Link
+                href={`/app/drivers/${data.driver.custId}?league=${data.leagues[0].leagueId}#league-profile`}
+                className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-zinc-500"
+              >
+                Edit Profile
+              </Link>
+            ) : null}
             {fromLeagueId ? (
               <Link
                 href={`/app/${fromLeagueId}/standings`}
@@ -941,7 +1018,10 @@ export default function DriverProfilePage() {
             </section>
 
             {fromLeagueId && leagueProfile && (
-              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+              <section
+                id="league-profile"
+                className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5"
+              >
                 <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
                   <div>
                     <h2 className="text-lg font-semibold">League Profile</h2>
@@ -951,6 +1031,40 @@ export default function DriverProfilePage() {
 
                     {leagueProfile.canEdit ? (
                       <div className="mt-4 space-y-3">
+                        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
+                          <p className="text-xs uppercase tracking-widest text-zinc-500">
+                            iRacing Synced Identity
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-zinc-100">
+                            {leagueProfile.targetProfile.displayName}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-400">
+                            Location:{" "}
+                            {leagueProfile.targetProfile.country ?? "Not set"}
+                          </p>
+                          <p className="mt-2 text-xs text-zinc-500">
+                            Name and location come from iRacing. Use resync
+                            after updating iRacing.
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            Last synced:{" "}
+                            {new Date(
+                              leagueProfile.targetProfile.lastSyncedAt,
+                            ).toLocaleString()}
+                          </p>
+                          <div className="mt-3">
+                            <button
+                              onClick={handleResyncLeagueProfile}
+                              disabled={profileResyncing}
+                              className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {profileResyncing
+                                ? "Syncing from iRacing..."
+                                : "Resync from iRacing"}
+                            </button>
+                          </div>
+                        </div>
+
                         <label className="block text-xs text-zinc-400 space-y-1">
                           <span className="block uppercase tracking-widest">
                             Headline
@@ -1004,6 +1118,19 @@ export default function DriverProfilePage() {
                       </div>
                     ) : (
                       <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                          iRacing Synced Identity
+                        </p>
+                        <p className="mt-2 text-sm text-zinc-400">
+                          Location:{" "}
+                          {leagueProfile.targetProfile.country ?? "Not set"}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Last synced:{" "}
+                          {new Date(
+                            leagueProfile.targetProfile.lastSyncedAt,
+                          ).toLocaleString()}
+                        </p>
                         <p className="text-sm font-medium text-zinc-200">
                           {leagueProfile.targetProfile.profileHeadline ??
                             "No headline yet"}

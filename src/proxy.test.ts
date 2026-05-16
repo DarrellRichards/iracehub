@@ -36,7 +36,7 @@ function buildRequest(
         cookies[name] ? { value: cookies[name] } : undefined,
     },
     headers: {
-      get: (_name: string) => null,
+      get: () => null,
     },
   } as unknown as import("next/server").NextRequest;
 }

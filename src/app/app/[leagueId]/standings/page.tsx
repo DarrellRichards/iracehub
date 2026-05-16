@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 import { useEffect, useState } from "react";
 
 interface StandingEntry {
@@ -207,6 +208,7 @@ export default function LeagueStandingsPage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
             <Link
               href={`/app/${params.leagueId}`}
               className="text-sm text-zinc-400 hover:text-white transition-colors"

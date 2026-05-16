@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { formatMoney } from "@/lib/money";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 
 interface TeamDriverPaymentsResponse {
   teamId: string;
@@ -427,6 +428,7 @@ export default function TeamsPage() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
             <Link
               href={`/app/${params.leagueId}`}
               className="text-sm text-zinc-400 hover:text-white transition-colors"

@@ -87,6 +87,7 @@ export function AdminSidebar({
         </Link>
         <div className="flex items-center gap-3">
           {leagueLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={leagueLogo}
               alt={leagueName}

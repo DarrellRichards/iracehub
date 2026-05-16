@@ -5,13 +5,13 @@ import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 import {
   Trophy,
   Users,
   Grid,
   Share2,
   Settings,
-  BarChart3,
   ExternalLink,
 } from "lucide-react";
 
@@ -98,7 +98,9 @@ export default function AdminDashboard() {
             seriesCount: Array.isArray(seriesData) ? seriesData.length : 0,
             memberCount: Array.isArray(membersData) ? membersData.length : 0,
             pendingJoinRequests: Array.isArray(joinReqData)
-              ? joinReqData.filter((r: any) => r.status === "PENDING").length
+              ? joinReqData.filter(
+                  (r: { status: string }) => r.status === "PENDING",
+                ).length
               : 0,
           });
         }
@@ -172,6 +174,7 @@ export default function AdminDashboard() {
             i<span className="text-red-500">Race</span>Hub
           </Link>
           <div className="flex items-center gap-3">
+            <DriverSearchBar />
             {league && (
               <Link
                 href={`/app/${league.routeLeagueId}`}

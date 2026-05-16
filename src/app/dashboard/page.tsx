@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
+import { DriverSearchBar } from "@/components/DriverSearchBar";
 import { useEffect, useRef, useState } from "react";
 
 interface EligibleLeague {
@@ -55,17 +56,21 @@ interface TeamInvitation {
 }
 
 function SessionTimer({ expiresAt }: { expiresAt: number | null }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
+    const tick = () => setNow(Date.now());
+    const initTimer = setTimeout(tick, 0);
 
-    return () => clearInterval(interval);
+    const interval = setInterval(tick, 1000);
+
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
   }, []);
 
-  if (!expiresAt) return null;
+  if (!expiresAt || now == null) return null;
 
   const remaining = Math.max(0, Math.round((expiresAt - now) / 1000));
   const mins = Math.floor(remaining / 60);
@@ -412,6 +417,7 @@ export default function DashboardPage() {
             i<span className="text-red-500">Race</span>Hub
           </span>
           <div className="flex items-center gap-4">
+            <DriverSearchBar />
             <SessionTimer expiresAt={session.expiresAt} />
             <button
               onClick={logout}
@@ -438,13 +444,29 @@ export default function DashboardPage() {
               </p>
             ) : null}
           </div>
-          <button
-            onClick={() => setModalOpen(true)}
-            disabled={loadingLeagues}
-            className="shrink-0 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 transition-all px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-red-600/20"
-          >
-            + Create a League
-          </button>
+          <div className="shrink-0 flex items-center gap-2">
+            <Link
+              href="/app/drivers"
+              className="rounded-xl border border-zinc-700 hover:border-zinc-500 transition-colors px-4 py-2.5 text-sm font-semibold text-zinc-200"
+            >
+              Find Drivers
+            </Link>
+            {userCustId && (
+              <Link
+                href={`/app/drivers/${userCustId}`}
+                className="rounded-xl border border-zinc-700 hover:border-zinc-500 transition-colors px-4 py-2.5 text-sm font-semibold text-zinc-200"
+              >
+                View My Profile
+              </Link>
+            )}
+            <button
+              onClick={() => setModalOpen(true)}
+              disabled={loadingLeagues}
+              className="rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 transition-all px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-red-600/20"
+            >
+              + Create a League
+            </button>
+          </div>
         </div>
 
         {/* Team Invitations */}
