@@ -157,16 +157,12 @@ export async function PATCH(
     );
   }
 
-  if (!Array.isArray(body.virtualBaselinePayout)) {
+  if (
+    body.virtualBaselinePayout !== undefined &&
+    !Array.isArray(body.virtualBaselinePayout)
+  ) {
     return NextResponse.json(
       { error: "invalid_virtual_baseline_payout" },
-      { status: 400 },
-    );
-  }
-
-  if (body.virtualBaselinePayout.length !== PAYOUT_SLOTS) {
-    return NextResponse.json(
-      { error: "virtual_baseline_payout_must_have_60_values" },
       { status: 400 },
     );
   }
@@ -196,11 +192,25 @@ export async function PATCH(
       return auth.error;
     }
 
+    const existingLeague = await prisma.league.findUnique({
+      where: { id: leagueId },
+      select: {
+        virtualBaselinePayout: true,
+      },
+    });
+
+    if (!existingLeague) {
+      return NextResponse.json({ error: "league_not_found" }, { status: 404 });
+    }
+
+    const baselinePayoutSource =
+      body.virtualBaselinePayout ?? existingLeague.virtualBaselinePayout;
+
     const updated = await prisma.league.update({
       where: { id: leagueId },
       data: {
         virtualModeEnabled: body.virtualModeEnabled,
-        virtualBaselinePayout: normalizePayout(body.virtualBaselinePayout),
+        virtualBaselinePayout: normalizePayout(baselinePayoutSource),
         virtualEntryFee,
         virtualStartingMoney,
         virtualIncLimit,
