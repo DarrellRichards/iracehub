@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 interface DriverResult {
@@ -61,7 +61,7 @@ function DriverCard({ driver }: { driver: DriverResult }) {
   );
 }
 
-export default function DriversSearchPage() {
+function DriversSearchPageContent() {
   const { session, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,5 +285,19 @@ export default function DriversSearchPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function DriversSearchPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+          <div className="h-8 w-8 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
+        </div>
+      }
+    >
+      <DriversSearchPageContent />
+    </Suspense>
   );
 }
