@@ -39,6 +39,13 @@ interface RecruitingSettingsPayload {
   openSeries: Array<{ id: string; name: string }>;
 }
 
+interface DiscordWebhookConfig {
+  webhookUrl: string | null;
+  onEventCreated: boolean;
+  onDayOfEvent: boolean;
+  onResultsUploaded: boolean;
+}
+
 export default function AdminSettingsPage() {
   const { session, loading: authLoading, logout } = useAuth();
   const router = useRouter();
@@ -70,6 +77,15 @@ export default function AdminSettingsPage() {
   // iRacing Link State
   const [pendingIracingLeagueId, setPendingIracingLeagueId] = useState("");
   const [linkingIracingLeague, setLinkingIracingLeague] = useState(false);
+
+  // Discord Webhook State
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
+  const [discordOnEventCreated, setDiscordOnEventCreated] = useState(true);
+  const [discordOnDayOfEvent, setDiscordOnDayOfEvent] = useState(true);
+  const [discordOnResultsUploaded, setDiscordOnResultsUploaded] =
+    useState(true);
+  const [savingDiscord, setSavingDiscord] = useState(false);
+  const [discordNotice, setDiscordNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !session?.authenticated) {
@@ -107,8 +123,8 @@ export default function AdminSettingsPage() {
           setLeague(found);
 
           // Fetch series and settings
-          const [seriesRes, virtualMoneyRes, recruitingRes] = await Promise.all(
-            [
+          const [seriesRes, virtualMoneyRes, recruitingRes, discordRes] =
+            await Promise.all([
               fetch(`/api/leagues/${found.id}/series`, { cache: "no-store" }),
               fetch(`/api/leagues/${found.id}/virtual-money`, {
                 cache: "no-store",
@@ -116,8 +132,10 @@ export default function AdminSettingsPage() {
               fetch(`/api/leagues/${found.id}/recruiting`, {
                 cache: "no-store",
               }),
-            ],
-          );
+              fetch(`/api/leagues/${found.id}/discord-webhook`, {
+                cache: "no-store",
+              }),
+            ]);
 
           if (seriesRes.ok) {
             const seriesData = (await seriesRes.json()) as Series[];
@@ -144,6 +162,15 @@ export default function AdminSettingsPage() {
                 String(seriesItem.id),
               ),
             );
+          }
+
+          if (discordRes.ok) {
+            const discordData =
+              (await discordRes.json()) as DiscordWebhookConfig;
+            setDiscordWebhookUrl(discordData.webhookUrl ?? "");
+            setDiscordOnEventCreated(discordData.onEventCreated);
+            setDiscordOnDayOfEvent(discordData.onDayOfEvent);
+            setDiscordOnResultsUploaded(discordData.onResultsUploaded);
           }
         }
       } catch (err) {
@@ -266,6 +293,50 @@ export default function AdminSettingsPage() {
       alert(err instanceof Error ? err.message : "failed_to_link_iracing");
     } finally {
       setLinkingIracingLeague(false);
+    }
+  };
+
+  const handleSaveDiscordWebhook = async (sendTest = false) => {
+    if (!league) return;
+
+    setSavingDiscord(true);
+    setDiscordNotice(null);
+
+    try {
+      const response = await fetch(
+        `/api/leagues/${league.id}/discord-webhook`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhookUrl: discordWebhookUrl.trim() || null,
+            onEventCreated: discordOnEventCreated,
+            onDayOfEvent: discordOnDayOfEvent,
+            onResultsUploaded: discordOnResultsUploaded,
+            test: sendTest,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const err = (await response.json()) as {
+          message?: string;
+          error?: string;
+        };
+        throw new Error(err.message ?? err.error ?? "failed_to_save");
+      }
+
+      setDiscordNotice(
+        sendTest
+          ? "Settings saved! A test notification has been sent to Discord."
+          : "Discord webhook settings saved successfully!",
+      );
+    } catch (err) {
+      setDiscordNotice(
+        err instanceof Error ? err.message : "error_saving_discord_webhook",
+      );
+    } finally {
+      setSavingDiscord(false);
     }
   };
 
@@ -442,6 +513,99 @@ export default function AdminSettingsPage() {
               >
                 {savingRecruiting ? "Saving…" : "Save Recruiting Settings"}
               </button>
+            </div>
+
+            {/* Discord Webhook Settings */}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+              <div className="mb-6">
+                <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                  <span>Discord Notifications</span>
+                  <span className="text-sm font-normal text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-full">
+                    Webhook
+                  </span>
+                </h2>
+                <p className="text-sm text-zinc-400">
+                  Post automatic notifications to a Discord channel via a
+                  webhook URL. Paste the webhook URL from your Discord server
+                  settings.
+                </p>
+              </div>
+
+              <label className="text-xs text-zinc-400 space-y-2 block mb-4">
+                <span className="block font-medium">Discord Webhook URL</span>
+                <input
+                  type="url"
+                  value={discordWebhookUrl}
+                  onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                  placeholder="https://discord.com/api/webhooks/..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-red-500"
+                />
+              </label>
+
+              <div className="space-y-2 mb-6">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3">
+                  Notify When
+                </p>
+
+                {(
+                  [
+                    {
+                      label: "New event added to the schedule",
+                      value: discordOnEventCreated,
+                      onChange: setDiscordOnEventCreated,
+                    },
+                    {
+                      label: "Day of a race event",
+                      value: discordOnDayOfEvent,
+                      onChange: setDiscordOnDayOfEvent,
+                    },
+                    {
+                      label: "Race results are uploaded",
+                      value: discordOnResultsUploaded,
+                      onChange: setDiscordOnResultsUploaded,
+                    },
+                  ] as const
+                ).map(({ label, value, onChange }) => (
+                  <label
+                    key={label}
+                    className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2.5 text-sm text-zinc-200 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={value}
+                      onChange={(e) => onChange(e.target.checked)}
+                      className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-red-500 focus:ring-red-500 cursor-pointer"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {discordNotice && (
+                <p className="mb-4 p-3 rounded bg-green-500/10 border border-green-500/30 text-sm text-green-400">
+                  {discordNotice}
+                </p>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => void handleSaveDiscordWebhook(false)}
+                  disabled={savingDiscord}
+                  className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingDiscord ? "Saving…" : "Save Webhook Settings"}
+                </button>
+
+                {discordWebhookUrl.trim() && (
+                  <button
+                    onClick={() => void handleSaveDiscordWebhook(true)}
+                    disabled={savingDiscord}
+                    className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Save &amp; Send Test
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Virtual Money Settings */}

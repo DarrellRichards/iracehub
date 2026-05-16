@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 import { Prisma } from "@prisma/client";
+import { notifyEventCreated } from "@/lib/discord/webhook";
 
 interface ScheduleRequest {
   eventDate: string;
@@ -276,6 +277,46 @@ export async function POST(
         raceOrder: data.raceOrder ?? (latestSchedule?.raceOrder ?? 0) + 1,
       },
     });
+
+    // Fire Discord webhook (best-effort, non-blocking)
+    void (async () => {
+      try {
+        const webhookConfig = await prisma.discordWebhookConfig.findUnique({
+          where: { leagueId },
+          select: {
+            webhookUrl: true,
+            onEventCreated: true,
+          },
+        });
+
+        if (webhookConfig?.onEventCreated && !data.isOffWeek) {
+          const [league, series] = await Promise.all([
+            prisma.league.findUnique({
+              where: { id: leagueId },
+              select: { leagueName: true },
+            }),
+            prisma.series.findUnique({
+              where: { id: seriesId },
+              select: { name: true },
+            }),
+          ]);
+
+          await notifyEventCreated(webhookConfig.webhookUrl, {
+            leagueName: league?.leagueName ?? leagueId,
+            seriesName: series?.name ?? "Unknown Series",
+            raceName: schedule.raceName,
+            eventDate: schedule.eventDate,
+            trackName: schedule.trackName,
+            raceLength: schedule.raceLength,
+          });
+        }
+      } catch (webhookErr) {
+        console.error(
+          "[Discord Webhook] Failed to notify event created:",
+          webhookErr,
+        );
+      }
+    })();
 
     return Response.json(schedule, { status: 201 });
   } catch (error) {
