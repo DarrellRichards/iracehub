@@ -17,23 +17,12 @@ interface LeagueDetail {
   admin: boolean;
 }
 
-interface AdminStats {
-  seriesCount: number;
-  memberCount: number;
-  pendingJoinRequests: number;
-}
-
 export default function LeagueAdminPage() {
   const { session, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const params = useParams<{ leagueId: string }>();
 
   const [league, setLeague] = useState<LeagueDetail | null>(null);
-  const [stats, setStats] = useState<AdminStats>({
-    seriesCount: 0,
-    memberCount: 0,
-    pendingJoinRequests: 0,
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,27 +60,6 @@ export default function LeagueAdminPage() {
           setError("You don't have admin access");
         } else {
           setLeague(found);
-
-          // Load stats
-          const [seriesRes, membersRes, joinReqRes] = await Promise.all([
-            fetch(`/api/leagues/${found.id}/series`, { cache: "no-store" }),
-            fetch(`/api/leagues/${found.id}/members`, { cache: "no-store" }),
-            fetch(`/api/leagues/${found.id}/join-requests`, {
-              cache: "no-store",
-            }),
-          ]);
-
-          const seriesData = seriesRes.ok ? await seriesRes.json() : [];
-          const membersData = membersRes.ok ? await membersRes.json() : [];
-          const joinReqData = joinReqRes.ok ? await joinReqRes.json() : [];
-
-          setStats({
-            seriesCount: Array.isArray(seriesData) ? seriesData.length : 0,
-            memberCount: Array.isArray(membersData) ? membersData.length : 0,
-            pendingJoinRequests: Array.isArray(joinReqData)
-              ? joinReqData.filter((r: any) => r.status === "PENDING").length
-              : 0,
-          });
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "error_loading");

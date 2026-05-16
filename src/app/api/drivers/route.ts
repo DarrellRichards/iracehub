@@ -20,7 +20,10 @@ export async function GET(request: NextRequest) {
 
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const limit = Math.min(
-    Math.max(1, parseInt(request.nextUrl.searchParams.get("limit") ?? "30", 10)),
+    Math.max(
+      1,
+      parseInt(request.nextUrl.searchParams.get("limit") ?? "30", 10),
+    ),
     100,
   );
 

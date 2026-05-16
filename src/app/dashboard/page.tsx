@@ -59,13 +59,15 @@ function SessionTimer({ expiresAt }: { expiresAt: number | null }) {
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    setNow(Date.now());
+    const tick = () => setNow(Date.now());
+    const initTimer = setTimeout(tick, 0);
 
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
+    const interval = setInterval(tick, 1000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
   }, []);
 
   if (!expiresAt || now == null) return null;

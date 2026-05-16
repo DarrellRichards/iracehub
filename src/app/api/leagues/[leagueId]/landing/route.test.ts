@@ -56,7 +56,7 @@ function buildRequest(accessToken = "token"): NextRequest {
   } as unknown as NextRequest;
 }
 
-function mockLeague(overrides?: Partial<any>) {
+function mockLeague(overrides?: Partial<Record<string, unknown>>) {
   mocks.prisma.league.findUnique.mockResolvedValue({
     id: "league-1",
     iracingLeagueId: 101,

@@ -234,11 +234,12 @@ describe("registration route", () => {
         virtualModeEnabled: false,
         virtualStartingMoney: 100,
       });
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { create: vi.fn() },
-          virtualMoneyEvent: { aggregate: vi.fn(), create: vi.fn() },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { create: vi.fn() },
+            virtualMoneyEvent: { aggregate: vi.fn(), create: vi.fn() },
+          }),
       );
       mocks.prisma.eventRegistration.count.mockResolvedValue(3);
       mocks.prisma.virtualMoneyEvent.aggregate.mockResolvedValue({
@@ -271,14 +272,15 @@ describe("registration route", () => {
       const txLedgerAggregate = vi
         .fn()
         .mockResolvedValue({ _sum: { amount: 0 } });
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { create: vi.fn() },
-          virtualMoneyEvent: {
-            aggregate: txLedgerAggregate,
-            create: txEventCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { create: vi.fn() },
+            virtualMoneyEvent: {
+              aggregate: txLedgerAggregate,
+              create: txEventCreate,
+            },
+          }),
       );
 
       const response = await POST(buildRequest(), { params });
@@ -364,14 +366,15 @@ describe("registration route", () => {
         .mockResolvedValueOnce({ _sum: { amount: -10 } });
       const txCreate = vi.fn();
 
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: { deleteMany: txDeleteMany },
-          virtualMoneyEvent: {
-            aggregate: txAggregate,
-            create: txCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: { deleteMany: txDeleteMany },
+            virtualMoneyEvent: {
+              aggregate: txAggregate,
+              create: txCreate,
+            },
+          }),
       );
 
       mocks.prisma.eventRegistration.count.mockResolvedValue(1);
@@ -399,16 +402,17 @@ describe("registration route", () => {
       });
 
       const txCreate = vi.fn();
-      mocks.prisma.$transaction.mockImplementation(async (fn: any) =>
-        fn({
-          eventRegistration: {
-            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-          },
-          virtualMoneyEvent: {
-            aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
-            create: txCreate,
-          },
-        }),
+      mocks.prisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({
+            eventRegistration: {
+              deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            },
+            virtualMoneyEvent: {
+              aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+              create: txCreate,
+            },
+          }),
       );
 
       mocks.prisma.eventRegistration.count.mockResolvedValue(0);

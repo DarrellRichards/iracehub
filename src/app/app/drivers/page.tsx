@@ -237,10 +237,14 @@ export default function DriversSearchPage() {
           <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-16 text-center">
             <p className="text-zinc-500 text-sm">
               No drivers found for{" "}
-              <span className="text-zinc-300 font-semibold">&ldquo;{query}&rdquo;</span>.
+              <span className="text-zinc-300 font-semibold">
+                &ldquo;{query}&rdquo;
+              </span>
+              .
             </p>
             <p className="text-zinc-600 text-xs mt-2">
-              Try a different name, nickname, or paste their iRacing ID directly.
+              Try a different name, nickname, or paste their iRacing ID
+              directly.
             </p>
           </div>
         )}
@@ -252,7 +256,8 @@ export default function DriversSearchPage() {
                 {results.length} driver{results.length === 1 ? "" : "s"} found
                 {query ? (
                   <>
-                    {" "}for{" "}
+                    {" "}
+                    for{" "}
                     <span className="text-zinc-300 font-semibold">
                       &ldquo;{query}&rdquo;
                     </span>
@@ -273,7 +278,8 @@ export default function DriversSearchPage() {
           <div className="rounded-2xl border border-dashed border-zinc-800 px-6 py-16 text-center">
             <div className="text-5xl mb-4">🏁</div>
             <p className="text-zinc-400 text-sm">
-              Start typing to search for a driver by name, car number, or iRacing ID.
+              Start typing to search for a driver by name, car number, or
+              iRacing ID.
             </p>
           </div>
         )}

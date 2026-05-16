@@ -449,7 +449,6 @@ export default function DriverProfilePage() {
 
   useEffect(() => {
     if (!session?.authenticated) {
-      setViewerCustId(null);
       return;
     }
 
@@ -479,8 +478,10 @@ export default function DriverProfilePage() {
 
   useEffect(() => {
     if (!session?.authenticated || !fromLeagueId) {
-      setLeagueMembers([]);
-      return;
+      const timer = setTimeout(() => {
+        setLeagueMembers([]);
+      }, 0);
+      return () => clearTimeout(timer);
     }
 
     let cancelled = false;

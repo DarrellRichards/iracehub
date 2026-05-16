@@ -98,7 +98,9 @@ export default function AdminDashboard() {
             seriesCount: Array.isArray(seriesData) ? seriesData.length : 0,
             memberCount: Array.isArray(membersData) ? membersData.length : 0,
             pendingJoinRequests: Array.isArray(joinReqData)
-              ? joinReqData.filter((r: { status: string }) => r.status === "PENDING").length
+              ? joinReqData.filter(
+                  (r: { status: string }) => r.status === "PENDING",
+                ).length
               : 0,
           });
         }

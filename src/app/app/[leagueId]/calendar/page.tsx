@@ -957,7 +957,7 @@ function EventCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const { session: authSession } = useAuth();
+  useAuth();
   const searchParams = useSearchParams();
   const params = useParams<{ leagueId: string }>();
 

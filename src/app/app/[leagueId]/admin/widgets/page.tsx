@@ -253,8 +253,8 @@ export default function AdminWidgetsPage() {
             <div className="mb-8">
               <h2 className="text-3xl font-bold mb-2">League Widgets</h2>
               <p className="text-zinc-400">
-                Generate embeddable widgets to display your league&apos;s schedule,
-                standings, and race results on any website.
+                Generate embeddable widgets to display your league&apos;s
+                schedule, standings, and race results on any website.
               </p>
             </div>
 
