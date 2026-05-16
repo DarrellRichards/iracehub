@@ -68,8 +68,24 @@ model League {
     moneyEvents      VirtualMoneyEvent[]
     recruitingSeries LeagueRecruitingSeries[]
     joinRequests     LeagueJoinRequest[]
+    discordWebhook   DiscordWebhookConfig?
 
     @@map("leagues")
+}
+
+model DiscordWebhookConfig {
+    id                String   @id @default(cuid())
+    leagueId          String   @unique @map("league_id")
+    webhookUrl        String   @map("webhook_url")
+    onEventCreated    Boolean  @default(true) @map("on_event_created")
+    onDayOfEvent      Boolean  @default(true) @map("on_day_of_event")
+    onResultsUploaded Boolean  @default(true) @map("on_results_uploaded")
+    createdAt         DateTime @default(now()) @map("created_at")
+    updatedAt         DateTime @updatedAt @map("updated_at")
+
+    league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+    @@map("discord_webhook_configs")
 }
 
 model LeagueMembership {

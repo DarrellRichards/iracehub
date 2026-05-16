@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getIracingCustIdFromJwt } from "@/lib/auth/iracing";
 import { fetchIracingLinkedJson } from "@/lib/iracing/api";
 import { recalculateLeagueVirtualMoney } from "@/lib/virtualMoneyDistribution";
+import { notifyResultsUploaded } from "@/lib/discord/webhook";
 
 function toInputJsonValue(value: Prisma.JsonValue): Prisma.InputJsonValue {
   if (value === null) return null as unknown as Prisma.InputJsonValue;
@@ -429,6 +430,50 @@ export async function POST(
   });
 
   await recalculateLeagueVirtualMoney(prisma, leagueId);
+
+  // Fire Discord webhook (best-effort, non-blocking)
+  void (async () => {
+    try {
+      const webhookConfig = await prisma.discordWebhookConfig.findUnique({
+        where: { leagueId },
+        select: { webhookUrl: true, onResultsUploaded: true },
+      });
+
+      if (webhookConfig?.onResultsUploaded) {
+        const sessionWithDetails = await prisma.raceSession.findUnique({
+          where: { id: raceSessionId },
+          select: {
+            trackName: true,
+            winnerName: true,
+            leagueId: true,
+            seriesId: true,
+            schedule: {
+              select: { raceName: true, eventDate: true },
+            },
+            league: { select: { leagueName: true } },
+            series: { select: { name: true } },
+          },
+        });
+
+        if (sessionWithDetails) {
+          await notifyResultsUploaded(webhookConfig.webhookUrl, {
+            leagueName: sessionWithDetails.league.leagueName,
+            seriesName: sessionWithDetails.series.name,
+            raceName: sessionWithDetails.schedule?.raceName ?? "Race",
+            eventDate: sessionWithDetails.schedule?.eventDate ?? new Date(),
+            trackName: sessionWithDetails.trackName,
+            winnerName: sessionWithDetails.winnerName,
+            resultCount: upserted.length,
+          });
+        }
+      }
+    } catch (webhookErr) {
+      console.error(
+        "[Discord Webhook] Failed to notify results uploaded:",
+        webhookErr,
+      );
+    }
+  })();
 
   return NextResponse.json({ imported: upserted.length, results: upserted });
 }

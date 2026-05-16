@@ -1,0 +1,35 @@
+<svg width="960" height="540" viewBox="0 0 960 540" fill="none"
+    xmlns="http://www.w3.org/2000/svg" role="img" aria-label="iRaceHub Discord Banner">
+    <defs>
+        <linearGradient id="bgGradient" x1="0" y1="0" x2="960" y2="540" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#09090B"/>
+            <stop offset="1" stop-color="#171717"/>
+        </linearGradient>
+        <linearGradient id="accentLine" x1="0" y1="0" x2="960" y2="0" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#DC2626" stop-opacity="0"/>
+            <stop offset="0.5" stop-color="#DC2626" stop-opacity="1"/>
+            <stop offset="1" stop-color="#DC2626" stop-opacity="0"/>
+        </linearGradient>
+    </defs>
+
+    <rect width="960" height="540" fill="url(#bgGradient)"/>
+
+    <circle cx="104" cy="96" r="130" fill="#DC2626" fill-opacity="0.08"/>
+    <circle cx="860" cy="446" r="150" fill="#DC2626" fill-opacity="0.08"/>
+
+    <rect x="64" y="52" width="832" height="436" rx="26" fill="#18181B" fill-opacity="0.72" stroke="#27272A"/>
+    <text x="480" y="220" text-anchor="middle" fill="#FFFFFF" font-family="Geist, Arial, Helvetica, sans-serif" font-size="64" font-weight="900" letter-spacing="-0.03em">
+    i<tspan fill="#DC2626">Race</tspan>Hub
+    </text>
+
+    <text x="480" y="266" text-anchor="middle" fill="#A1A1AA" font-family="Geist, Arial, Helvetica, sans-serif" font-size="24" font-weight="500">
+    Open-Source League Management for iRacing
+    </text>
+
+    <rect x="254" y="314" width="452" height="72" rx="16" fill="#0A0A0A" stroke="#3F3F46"/>
+    <text x="480" y="358" text-anchor="middle" fill="#FAFAFA" font-family="Geist, Arial, Helvetica, sans-serif" font-size="38" font-weight="700" letter-spacing="0.01em">
+    iracehub.com
+    </text>
+
+    <rect x="126" y="454" width="708" height="2" fill="url(#accentLine)"/>
+</svg>

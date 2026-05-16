@@ -31,9 +31,9 @@ const primaryFeatures = [
   },
   {
     icon: "🔗",
-    title: "iRacing Connected",
+    title: "iRacing + Discord Connected",
     description:
-      "Sign in with iRacing and sync seasons, sessions, and race results directly into your league.",
+      "Sign in with iRacing, sync race data, and push Discord webhook alerts for event creation, race day, and uploaded results.",
   },
 ];
 
@@ -44,6 +44,7 @@ const featureDetails = [
     title: "Admin Controls",
     points: [
       "Sync seasons and sessions from iRacing",
+      "Configure Discord webhooks per league",
       "Import, edit, and recalculate race results",
       "Assign bonus points, penalties, and provisionals",
       "Turn virtual money mode on or off anytime",
@@ -70,7 +71,7 @@ const featureDetails = [
 const quickStats = [
   { label: "League Ops", value: "One place" },
   { label: "Data Source", value: "iRacing" },
-  { label: "Auth", value: "Secure OAuth" },
+  { label: "Notifications", value: "Discord Webhooks" },
   { label: "Virtual Economy", value: "Optional" },
 ];
 
@@ -140,6 +141,11 @@ export default async function HomePage({
               iRaceHub gives race admins and drivers a complete platform for
               standings, schedules, teams, and results—fully connected to
               iRacing and built for serious championship management.
+            </p>
+
+            <p className="mx-auto mb-8 inline-flex max-w-fit items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              Discord Webhook Notifications Now Supported
             </p>
 
             {errorMessage && (
